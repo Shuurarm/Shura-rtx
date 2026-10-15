@@ -94,13 +94,13 @@ async function mobile(id) {
   throw lastErr;
 }
 
-function parseMp4Fps(buf) {
+function parseMp4Meta(buf) {
   try {
     const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
     const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
     const tag = (p) => String.fromCharCode(u8[p], u8[p + 1], u8[p + 2], u8[p + 3]);
     const containers = new Set(["moov", "trak", "mdia", "minf", "stbl"]);
-    let bestFps = null;
+    let bestFps = null, bestDur = 0;
     const walk = (start, end, ctx) => {
       let p = start;
       while (p + 8 <= end) {
@@ -122,6 +122,7 @@ function parseMp4Fps(buf) {
           const tc = { isVideo: false, timescale: 0, dur: 0, sttsSamples: 0, sttsDelta: 0, domDelta: 0, domCount: 0, stszSamples: 0 };
           walk(body, next, tc);
           if (tc.isVideo && tc.timescale > 0) {
+            if (tc.dur > 0) bestDur = Math.max(bestDur, tc.dur / tc.timescale);
             let fps = 0;
             if (tc.sttsSamples > 0 && tc.sttsDelta > 0) fps = (tc.sttsSamples * tc.timescale) / tc.sttsDelta;
             else if (tc.domDelta > 0) fps = tc.timescale / tc.domDelta;
@@ -157,12 +158,12 @@ function parseMp4Fps(buf) {
       }
     };
     walk(0, u8.byteLength, null);
-    return bestFps;
-  } catch { return null; }
+    return { fps: bestFps, dur: bestDur };
+  } catch { return { fps: null, dur: 0 }; }
 }
 
-async function probeFps(u, cookie) {
-  if (!u || !u.startsWith("http")) return null;
+async function probeMeta(u, cookie) {
+  if (!u || !u.startsWith("http")) return { fps: null, dur: 0 };
   try {
     const isTikwm = /tikwm\.com/i.test(u);
     const headers = {
@@ -172,10 +173,10 @@ async function probeFps(u, cookie) {
     };
     if (!isTikwm && cookie) headers["Cookie"] = cookie;
     const r = await fetch(u, { headers, redirect: "follow", signal: AbortSignal.timeout(3500) });
-    if (!r.ok && r.status !== 206) return null;
+    if (!r.ok && r.status !== 206) return { fps: null, dur: 0 };
     const buf = await r.arrayBuffer();
-    return parseMp4Fps(buf);
-  } catch { return null; }
+    return parseMp4Meta(buf);
+  } catch { return { fps: null, dur: 0 }; }
 }
 
 function fmtDate(ts) {
@@ -196,6 +197,7 @@ function build(it, w, url, scraped, errs, mv, probed = {}) {
   it = it || {}; w = w || {};
   const v = it.video || {}, st = it.stats || {}, au = it.author || {}, mu = it.music || {};
   const dur = Number(v.duration || 0) || Math.round(Number(mv?.duration || 0) / 1000) || Number(w.duration || 0);
+  const exactDur = (mv?.duration ? Number(mv.duration) / 1000 : 0) || probed.dur || dur;
   const fpsMap = { ...(probed.gears || {}) };
   let maxFps = probed.max || Number(v.fps || v.FPS || v.videoMeta?.fps || w.fps || 0) || null;
   for (const b of (mv?.bit_rate || [])) if (b.FPS) { fpsMap[b.gear_name] = Number(b.FPS); maxFps = Math.max(maxFps || 0, Number(b.FPS)); }
@@ -205,15 +207,57 @@ function build(it, w, url, scraped, errs, mv, probed = {}) {
   };
   const streams = [];
   const pas = v.PlayAddrStruct;
+  const br0 = (v.bitrateInfo || [])[0];
+  const pasBytes = Number(pas?.DataSize || 0);
+  const br0Bytes = Number(br0?.PlayAddr?.DataSize || 0);
+
   if (pas && (pas.DataSize || pas.Width)) {
-    const bytes = Number(pas.DataSize || 0);
+    const bytes = pasBytes;
     streams.push({
       gear: "play_addr", src: "web", quality: null, w: pas.Width || v.width || 0, h: pas.Height || v.height || 0, fps: Number(v.fps || 0) || probed.pas || maxFps || null,
-      bps: Number(v.bitrate || 0) || (dur ? Math.round((bytes * 8) / dur) : 0),
-      codec: /265|hevc|bytevc1/i.test(v.codecType || v.bitrateInfo?.[0]?.CodecType || "") ? "hevc" : "h264", bytes, vq: null,
+      bps: Number(br0?.Bitrate || v.bitrate || 0) || (exactDur ? Math.round((bytes * 8) / exactDur) : 0),
+      codec: /265|hevc|bytevc1/i.test(`${v.codecType || ""} ${br0?.CodecType || ""}`) ? "hevc" : "h264", bytes, vq: null,
       url: firstUrl(pas) || firstUrl(v.playAddr),
     });
   }
+
+  if (mv) {
+    const mk = (gear, pa, x = {}) => {
+      if (!pa || !(pa.width || pa.data_size)) return;
+      const bytes = Number(pa.data_size || 0);
+      streams.push({
+        gear, src: "phone", quality: null, w: pa.width || 0, h: pa.height || 0, fps: x.fps || maxFps || null,
+        bps: x.bps || (exactDur ? Math.round((bytes * 8) / exactDur) : 0),
+        codec: x.codec || (/bytevc1|265/i.test(gear) ? "hevc" : "h264"), bytes, vq: null,
+        url: firstUrl(pa),
+      });
+    };
+    const topMvBr = (mv.bit_rate || [])[0];
+    const sameBr = (mv.bit_rate || []).find((b) => Number(b.play_addr?.data_size || 0) === Number(mv.play_addr?.data_size || 0));
+    const mvPaBytes = Number(mv.play_addr?.data_size || 0);
+    const sameAsBr0 = br0Bytes && mvPaBytes === br0Bytes;
+    mk("play_addr", mv.play_addr, {
+      fps: sameBr?.FPS || topMvBr?.FPS || maxFps,
+      bps: sameAsBr0 ? Number(br0?.Bitrate || sameBr?.bit_rate || 0) : (Number(sameBr?.bit_rate || 0) || (exactDur ? Math.round((mvPaBytes * 8) / exactDur) : 0)),
+      codec: (mv.is_bytevc1 || sameAsBr0 || /265|hevc|bytevc1/i.test(mv.play_addr?.url_key || "")) ? "hevc" : "h264",
+    });
+    mk("play_addr_h264", mv.play_addr_h264, { codec: "h264" });
+    mk("play_addr_bytevc1", mv.play_addr_bytevc1, { codec: "hevc" });
+    for (const b of (mv.bit_rate || [])) {
+      mk(b.gear_name || "bit_rate", b.play_addr, {
+        fps: b.FPS, bps: Number(b.bit_rate || 0),
+        codec: b.is_bytevc1 || b.is_h265 ? "hevc" : "h264",
+      });
+    }
+  } else if (pas && pasBytes && br0Bytes && pasBytes !== br0Bytes) {
+    const pBps = exactDur ? Math.round((pasBytes * 8) / exactDur) : Number(v.bitrate || 0);
+    const pw = pas.Width || v.width || 0, ph = pas.Height || v.height || 0;
+    const pasUrl = firstUrl(pas) || firstUrl(v.playAddr);
+    const normGear = `normal_${Math.min(pw, ph)}_0`;
+    streams.push({ gear: "play_addr", src: "phone", quality: null, w: pw, h: ph, fps: maxFps, bps: pBps, codec: "h264", bytes: pasBytes, vq: null, url: pasUrl });
+    streams.push({ gear: normGear, src: "phone", quality: null, w: pw, h: ph, fps: maxFps, bps: pBps, codec: "h264", bytes: pasBytes, vq: null, url: pasUrl });
+  }
+
   for (const b of (v.bitrateInfo || [])) {
     const pa = b.PlayAddr || {};
     const f = fpsOf(b) || fpsMap[b.GearName] || Number(v.fps || 0) || maxFps || null;
@@ -227,51 +271,22 @@ function build(it, w, url, scraped, errs, mv, probed = {}) {
       url: firstUrl(pa),
     });
   }
-  if (mv) {
-    const mk = (gear, pa, x = {}) => {
-      if (!pa || !(pa.width || pa.data_size)) return;
-      const bytes = Number(pa.data_size || 0);
-      streams.push({
-        gear, src: "phone", quality: null, w: pa.width || 0, h: pa.height || 0, fps: x.fps || maxFps || null,
-        bps: x.bps || (dur ? Math.round((bytes * 8) / dur) : 0),
-        codec: x.codec || (/bytevc1|265/i.test(gear) ? "hevc" : "h264"), bytes, vq: null,
-        url: firstUrl(pa),
-      });
-    };
-    const topMvBr = (mv.bit_rate || [])[0];
-    const sameAsPas = pas && Number(mv.play_addr?.data_size || 0) === Number(pas.DataSize || 0);
-    const sameBr = (mv.bit_rate || []).find((b) => Number(b.play_addr?.data_size || 0) === Number(mv.play_addr?.data_size || 0));
-    mk("play_addr", mv.play_addr, {
-      fps: sameBr?.FPS || topMvBr?.FPS || maxFps,
-      bps: sameAsPas ? (Number(v.bitrate || 0) || undefined) : (Number(sameBr?.bit_rate || topMvBr?.bit_rate || 0) || undefined),
-      codec: (mv.is_bytevc1 || /265|hevc|bytevc1/i.test(mv.play_addr?.url_key || (sameAsPas ? (v.codecType || v.bitrateInfo?.[0]?.CodecType) : "") || "")) ? "hevc" : "h264",
-    });
-    mk("play_addr_h264", mv.play_addr_h264, { codec: "h264" });
-    mk("play_addr_bytevc1", mv.play_addr_bytevc1, { codec: "hevc" });
-    for (const b of (mv.bit_rate || [])) {
-      mk(b.gear_name || "bit_rate", b.play_addr, {
-        fps: b.FPS, bps: Number(b.bit_rate || 0),
-        codec: b.is_bytevc1 || b.is_h265 ? "hevc" : "h264",
-      });
-    }
-  } else if (streams.length) {
-    const webOrig = streams.find((s) => s.src === "web" && /^original_/i.test(s.gear));
+
+  if (!mv && pas && pasBytes && (!br0Bytes || pasBytes === br0Bytes)) {
     const webPas = streams.find((s) => s.src === "web" && s.gear === "play_addr");
-    if (webPas) {
-      streams.push({ ...webPas, src: "phone" });
-    }
-    if (webOrig) {
-      streams.push({ ...webOrig, src: "phone", codec: "h264" });
-    }
+    const webOrig = streams.find((s) => s.src === "web" && /^original_/i.test(s.gear));
+    if (webPas) streams.push({ ...webPas, src: "phone" });
+    if (webOrig) streams.push({ ...webOrig, src: "phone", codec: "h264" });
   }
+
   if (maxFps) {
     for (const s of streams) if (!s.fps) s.fps = maxFps;
   }
-  streams.sort((a, b) => b.h - a.h || b.bps - a.bps);
+  streams.sort((a, b) => b.h - a.h || b.bytes - a.bytes);
   const top = streams[0] || null;
   const webTop = streams.find((s) => s.src === "web") || top;
   const phoneTop = streams.find((s) => s.src === "phone") || top;
-  const mainStream = streams.find((s) => s.gear && s.gear !== "play_addr") || top;
+  const mainStream = streams.find((s) => s.src === "web" && s.gear && s.gear !== "play_addr") || streams.find((s) => s.gear && s.gear !== "play_addr") || top;
   const fps = top?.fps || maxFps || probed.hd || probed.sd || null;
   const bitrate = mainStream?.bps ? `${(mainStream.bps / 1e6).toFixed(1)} MBps` : "—";
   const codec = mainStream?.codec ? mainStream.codec.toUpperCase() : "—";
@@ -423,7 +438,7 @@ async function analyze(rawUrl) {
   }
   const it = a.value || {}, w = b.value || {}, mv = c.value || null;
   const cookie = it._cookie || "";
-  const probed = { gears: {}, max: null, hd: null, sd: null, pas: null };
+  const probed = { gears: {}, max: null, hd: null, sd: null, pas: null, dur: 0 };
   const hasMobileFps = (mv?.bit_rate || []).some((x) => x.FPS);
   if (!hasMobileFps) {
     const tasks = [];
@@ -431,21 +446,23 @@ async function analyze(rawUrl) {
     for (const br of bitrates.slice(0, 4)) {
       const u = firstUrl(br.PlayAddr);
       if (u && br.GearName) {
-        tasks.push(probeFps(u, cookie).then((f) => {
-          if (f) { probed.gears[br.GearName] = f; probed.max = Math.max(probed.max || 0, f); }
+        tasks.push(probeMeta(u, cookie).then(({ fps, dur }) => {
+          if (fps) { probed.gears[br.GearName] = fps; probed.max = Math.max(probed.max || 0, fps); }
+          if (dur > 0) probed.dur = Math.max(probed.dur || 0, dur);
         }));
       }
     }
     const pasUrl = firstUrl(it.video?.PlayAddrStruct) || firstUrl(it.video?.playAddr);
-    if (pasUrl && !tasks.length) {
-      tasks.push(probeFps(pasUrl, cookie).then((f) => {
-        if (f) { probed.pas = f; probed.max = Math.max(probed.max || 0, f); }
+    if (pasUrl) {
+      tasks.push(probeMeta(pasUrl, cookie).then(({ fps, dur }) => {
+        if (fps) { probed.pas = fps; probed.max = Math.max(probed.max || 0, fps); }
+        if (dur > 0) probed.dur = Math.max(probed.dur || 0, dur);
       }));
     }
     const hdUrl = abs(w.hdplay);
     const sdUrl = abs(w.play);
-    if (hdUrl) tasks.push(probeFps(hdUrl, "").then((f) => { if (f) { probed.hd = f; probed.max = Math.max(probed.max || 0, f); } }));
-    else if (sdUrl) tasks.push(probeFps(sdUrl, "").then((f) => { if (f) { probed.sd = f; probed.max = Math.max(probed.max || 0, f); } }));
+    if (hdUrl) tasks.push(probeMeta(hdUrl, "").then(({ fps, dur }) => { if (fps) { probed.hd = fps; probed.max = Math.max(probed.max || 0, fps); } if (dur > 0) probed.dur = Math.max(probed.dur || 0, dur); }));
+    else if (sdUrl) tasks.push(probeMeta(sdUrl, "").then(({ fps, dur }) => { if (fps) { probed.sd = fps; probed.max = Math.max(probed.max || 0, fps); } if (dur > 0) probed.dur = Math.max(probed.dur || 0, dur); }));
     if (tasks.length) await Promise.allSettled(tasks);
   }
   return build(a.value, b.value, url, a.status === "fulfilled", { tiktok: a.reason?.message || null, tikwm: b.reason?.message || null, mobile: c.reason?.message || null }, c.value, probed);
