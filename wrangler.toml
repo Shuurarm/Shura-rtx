@@ -1,0 +1,8 @@
+name = "shura-rtx"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
+keep_vars = true
+
+# BOT_TOKEN NO va aquí: se agrega en Cloudflare → Workers & Pages → shura-rtx →
+# Settings → Variables and Secrets (la de "Variables and secrets" del Worker, no la de "Build").
