@@ -1,3 +1,4 @@
+
 import HTML from "./index.html";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
@@ -49,6 +50,7 @@ async function tikwmOnce(u, get) {
   if (j.code !== 0) throw new Error(j.msg || "TikWM error");
   return j.data;
 }
+
 async function tikwm(u) {
   try { return await tikwmOnce(u, false); }
   catch (e) {
@@ -62,6 +64,7 @@ const resLabel = (s) => baseRes(s) + (s.fps || "");
 
 const MOBILE_UA = "com.zhiliaoapp.musically/2023009040 (Linux; U; Android 9; en_US; ASUS_Z01QD; Build/PI; tt-ok/3.12.13.4-tiktok)";
 const videoId = (u) => (String(u).match(/\/(?:video|photo)\/(\d+)/) || [])[1];
+
 async function mobile(id) {
   const q = new URLSearchParams({ aweme_id: id, iid: "7318518857994389254", device_id: "7318517321748022790", channel: "googleplay", app_name: "musical_ly", version_code: "300904", device_platform: "android", device_type: "ASUS_Z01QD", os_version: "9", aid: "1180" });
   const r = await fetch(`https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/feed/?${q}`, { headers: { "User-Agent": MOBILE_UA }, signal: AbortSignal.timeout(3000) });
@@ -89,43 +92,115 @@ function build(it, w, url, scraped, errs, mv) {
   it = it || {}; w = w || {};
   const v = it.video || {}, st = it.stats || {}, au = it.author || {}, mu = it.music || {};
   const dur = Number(v.duration || 0) || Math.round(Number(mv?.duration || 0) / 1000);
-  const fpsMap = {}; let maxFps = null;
-  for (const b of (mv?.bit_rate || [])) if (b.FPS) { fpsMap[b.gear_name] = b.FPS; maxFps = Math.max(maxFps || 0, b.FPS); }
-  const fpsOf = (b) => { try { const x = JSON.parse(b.VideoExtra); return x.fps || x.FPS || null; } catch { return null; } };
+
+  // Detección ampliada de FPS en las fuentes de TikTok.
+  const normalizeFps = (value) => {
+    if (value == null || value === "") return null;
+
+    const str = String(value).trim();
+    const fraction = str.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+    let n;
+
+    if (fraction) {
+      const denominator = Number(fraction[2]);
+      n = denominator ? Number(fraction[1]) / denominator : NaN;
+    } else {
+      n = Number(str.replace(/[^\d.]/g, ""));
+    }
+
+    return Number.isFinite(n) && n >= 1 && n <= 240
+      ? Math.round(n * 100) / 100
+      : null;
+  };
+
+  const fpsOf = (b) => {
+    if (!b) return null;
+
+    const direct = normalizeFps(
+      b.FPS ?? b.fps ?? b.frame_rate ?? b.frameRate
+    );
+    if (direct) return direct;
+
+    for (const raw of [
+      b.VideoExtra,
+      b.video_extra,
+      b.videoExtra,
+      b.extra
+    ]) {
+      if (!raw) continue;
+
+      try {
+        const x = typeof raw === "string" ? JSON.parse(raw) : raw;
+        const fps = normalizeFps(
+          x?.fps ?? x?.FPS ?? x?.frame_rate ?? x?.frameRate ?? x?.video_fps
+        );
+        if (fps) return fps;
+      } catch {}
+    }
+
+    return null;
+  };
+
+  const fpsMap = {};
+  let maxFps = null;
+
+  for (const b of (mv?.bit_rate || [])) {
+    const fps = fpsOf(b);
+    if (fps) {
+      fpsMap[b.gear_name] = fps;
+      maxFps = Math.max(maxFps || 0, fps);
+    }
+  }
+
   const streams = (v.bitrateInfo || []).map((b) => {
     const pa = b.PlayAddr || {};
     return {
       gear: b.GearName || "", src: "web", quality: b.QualityType ?? null,
-      w: pa.Width || 0, h: pa.Height || 0, fps: b.FPS || fpsOf(b) || fpsMap[b.GearName] || v.fps || null,
+      w: pa.Width || 0, h: pa.Height || 0,
+      fps: fpsOf(b) || fpsMap[b.GearName] || normalizeFps(v.fps) || maxFps || null,
       bps: b.Bitrate || 0,
       codec: /265|hevc|bytevc1/i.test(b.CodecType || "") ? "hevc" : "h264",
       bytes: Number(pa.DataSize || 0), vq: b.VQScore ?? null,
     };
   });
+
   const pas = v.PlayAddrStruct;
   if (pas && (pas.DataSize || pas.Width)) {
     const bytes = Number(pas.DataSize || 0);
     streams.push({
-      gear: "play_addr", src: "web", quality: null, w: pas.Width || v.width || 0, h: pas.Height || v.height || 0, fps: v.fps || maxFps || null,
+      gear: "play_addr", src: "web", quality: null,
+      w: pas.Width || v.width || 0, h: pas.Height || v.height || 0,
+      fps: normalizeFps(v.fps) || maxFps || null,
       bps: Number(v.bitrate || 0) || (dur ? Math.round((bytes * 8) / dur) : 0),
       codec: /265|hevc/i.test(v.codecType || "") ? "hevc" : "h264", bytes, vq: null,
     });
   }
+
   if (mv) {
     const mk = (gear, pa, x = {}) => {
       if (!pa || !(pa.width || pa.data_size)) return;
       const bytes = Number(pa.data_size || 0);
       streams.push({
-        gear, src: "phone", quality: null, w: pa.width || 0, h: pa.height || 0, fps: x.fps || maxFps || null,
+        gear, src: "phone", quality: null, w: pa.width || 0, h: pa.height || 0,
+        fps: normalizeFps(x.fps) || maxFps || null,
         bps: x.bps || (dur ? Math.round((bytes * 8) / dur) : 0),
         codec: x.codec || (/bytevc1|265/i.test(gear) ? "hevc" : "h264"), bytes, vq: null,
       });
     };
+
     mk("play_addr", mv.play_addr, { codec: mv.is_bytevc1 ? "hevc" : "h264" });
     mk("play_addr_h264", mv.play_addr_h264, { codec: "h264" });
     mk("play_addr_bytevc1", mv.play_addr_bytevc1, { codec: "hevc" });
-    for (const b of (mv.bit_rate || [])) mk(b.gear_name || "bit_rate", b.play_addr, { fps: b.FPS, bps: Number(b.bit_rate || 0), codec: b.is_bytevc1 || b.is_h265 ? "hevc" : "h264" });
+
+    for (const b of (mv.bit_rate || [])) {
+      mk(b.gear_name || "bit_rate", b.play_addr, {
+        fps: fpsOf(b),
+        bps: Number(b.bit_rate || 0),
+        codec: b.is_bytevc1 || b.is_h265 ? "hevc" : "h264"
+      });
+    }
   }
+
   streams.sort((a, b) => b.h - a.h || b.bps - a.bps);
   const top = streams[0] || null;
   const webTop = streams.find((s) => s.src === "web") || top;
@@ -174,6 +249,7 @@ function build(it, w, url, scraped, errs, mv) {
     },
     ok: { tiktok: !!scraped, tikwm: !!Object.keys(w).length },
   };
+
   d.report = report(d);
   d.reportHtml = report(d, true);
   d.errors = errs || {};
@@ -261,27 +337,107 @@ function keyboard(d) {
 const tgForm = (env, method, form) =>
   fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, { method: "POST", body: form }).then((r) => r.json());
 
+// Descarga el video y lo entrega directamente en el chat.
 async function sendFile(env, chat, d) {
-  const link = d.links.hd || d.links.sd;
-  const fail = (t) => tg(env, "sendMessage", {
-    chat_id: chat, text: t, parse_mode: "HTML", disable_web_page_preview: true,
-    ...(link ? { reply_markup: { inline_keyboard: [[{ text: "🔗 Enlace directo HD", url: link }]] } } : {}),
+  const links = [
+    ...new Set(
+      [d.links.hd, d.links.sd].filter(
+        (x) => typeof x === "string" && /^https?:\/\//i.test(x)
+      )
+    )
+  ];
+
+  const link = links[0] || "";
+
+  const fail = (message) => tg(env, "sendMessage", {
+    chat_id: chat,
+    text: message,
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...(link ? {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🔗 Enlace directo de descarga", url: link }]
+        ]
+      }
+    } : {}),
   });
-  if (!link) return fail("❌ No encontré un enlace de descarga para este video.");
+
+  if (!links.length) {
+    return fail("❌ No encontré un enlace de descarga para este video.");
+  }
+
   const MAX = 48 * 1048576;
-  const r = await fetch(link, { headers: { "User-Agent": UA, "Referer": "https://www.tikwm.com/" }, signal: AbortSignal.timeout(20000) });
-  if (!r.ok) return fail("❌ No pude bajar el video.");
-  const size = Number(r.headers.get("content-length") || 0);
-  if (size > MAX) return fail(`⚠️ El video pesa ${(size / 1048576).toFixed(0)} MB y Telegram no deja que los bots envíen más de 50 MB. Usa el enlace directo:`);
-  const buf = await r.arrayBuffer();
-  if (buf.byteLength > MAX) return fail("⚠️ El video supera los 50 MB que permite Telegram. Usa el enlace directo:");
-  const f = new FormData();
-  f.append("chat_id", String(chat));
-  f.append("video", new Blob([buf], { type: "video/mp4" }), `${d.id}.mp4`);
-  f.append("supports_streaming", "true");
-  f.append("caption", "⚡️Shura RTX® | Downloader & Checker");
-  const res = await tgForm(env, "sendVideo", f);
-  if (!res.ok) return fail("❌ Telegram no aceptó el archivo. Usa el enlace directo:");
+  let lastError = "No se pudo descargar el archivo";
+
+  for (const candidate of links) {
+    try {
+      const r = await fetch(candidate, {
+        headers: {
+          "User-Agent": UA,
+          "Referer": "https://www.tikwm.com/"
+        },
+        redirect: "follow",
+        signal: AbortSignal.timeout(25000)
+      });
+
+      if (!r.ok) {
+        lastError = `El servidor de descarga respondió ${r.status}`;
+        continue;
+      }
+
+      const size = Number(r.headers.get("content-length") || 0);
+
+      if (size > MAX) {
+        await r.body?.cancel();
+        return fail(
+          `⚠️ El video pesa ${(size / 1048576).toFixed(1)} MB y supera el límite de envío directo del bot. Usa el enlace de descarga.`
+        );
+      }
+
+      const buf = await r.arrayBuffer();
+
+      if (!buf.byteLength) {
+        lastError = "El enlace devolvió un archivo vacío";
+        continue;
+      }
+
+      if (buf.byteLength > MAX) {
+        return fail(
+          `⚠️ El video pesa ${(buf.byteLength / 1048576).toFixed(1)} MB y supera el límite de envío directo configurado. Usa el enlace de descarga.`
+        );
+      }
+
+      const type = (r.headers.get("content-type") || "").toLowerCase();
+
+      if (type.includes("text/html") || type.includes("application/json")) {
+        lastError = "El proveedor devolvió una página de error en lugar del video";
+        continue;
+      }
+
+      const f = new FormData();
+      f.append("chat_id", String(chat));
+      f.append(
+        "video",
+        new Blob([buf], { type: "video/mp4" }),
+        `${d.id || "tiktok"}.mp4`
+      );
+      f.append("supports_streaming", "true");
+      f.append("caption", "⚡️Shura RTX® | Downloader & Checker");
+
+      const res = await tgForm(env, "sendVideo", f);
+
+      if (res.ok) return;
+
+      lastError = res.description || "Telegram rechazó el archivo";
+    } catch (e) {
+      lastError = e?.message || lastError;
+    }
+  }
+
+  return fail(
+    `❌ No pude entregar el video en Telegram. Motivo: ${esc(lastError)}. Puedes usar el enlace directo.`
+  );
 }
 
 async function handleCallback(cq, env) {
@@ -317,6 +473,7 @@ async function handleUpdate(update, env) {
   if (/^\/start/.test(msg.text)) {
     return send("⚡️ <b>Shura RTX® | Downloader &amp; Checker</b>\n\nEnvíame un enlace de TikTok y te devuelvo la vista previa del video, el análisis completo y la descarga sin marca de agua.");
   }
+
   const m = msg.text.match(TT);
   if (!m) return send("Envía un enlace válido de TikTok (tiktok.com o vm.tiktok.com).");
 
@@ -325,9 +482,11 @@ async function handleUpdate(update, env) {
     const d = await analyze(m[0]);
     const cap = previewCaption(d), kb = keyboard(d);
     let r = { ok: false };
+
     if (d.links.cover && d.links.cover.startsWith("http")) {
       r = await tg(env, "sendPhoto", { chat_id: chat, photo: d.links.cover, caption: cap, parse_mode: "HTML", reply_markup: kb });
     }
+
     if (!r.ok) await send(cap, { reply_markup: kb });
   } catch (e) {
     await send("❌ No pude analizar ese enlace: " + esc(e.message));
