@@ -9,7 +9,7 @@ const CORS = {
 const json = (o, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { ...CORS, "Content-Type": "application/json;charset=utf-8" } });
 const page = (b, s = 200) => new Response(b, { status: s, headers: { "Content-Type": "text/html;charset=utf-8" } });
-const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const num = (n) => Number(n || 0).toLocaleString("en-US");
 const TT = /https?:\/\/(?:[\w-]+\.)?tiktok\.com\/[^\s]+/i;
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -70,21 +70,24 @@ const resLabel = (s) => baseRes(s) + (s.fps || "");
 
 const MOBILE_UA = "com.zhiliaoapp.musically/2023009040 (Linux; U; Android 9; en_US; ASUS_Z01QD; Build/PI; tt-ok/3.12.13.4-tiktok)";
 const videoId = (u) => (String(u).match(/\/(?:video|photo|v)\/(\d+)/) || String(u).match(/[?&]item_id=(\d+)/) || [])[1];
-const randId = () => "73" + Array.from({ length: 17 }, () => Math.floor(Math.random() * 10)).join("");
 async function mobile(id) {
   const hosts = [
+    "https://api16-normal-c-useast1a.tiktokv.com",
     "https://api22-normal-c-alisg.tiktokv.com",
     "https://api16-normal-c-alisg.tiktokv.com",
-    "https://api16-normal-c-useast1a.tiktokv.com",
     "https://api16-normal-useast5.us.tiktokv.com",
   ];
+  const q = new URLSearchParams({
+    aweme_id: id, iid: "7318518857994389254", device_id: "7318517321748022790",
+    channel: "googleplay", app_name: "musical_ly", version_code: "300904",
+    device_platform: "android", device_type: "ASUS_Z01QD", os_version: "9", aid: "1180",
+  });
   let lastErr = new Error("API móvil sin datos");
   for (const h of hosts) {
     try {
-      const q = new URLSearchParams({ aweme_id: id, iid: randId(), device_id: randId(), channel: "googleplay", app_name: "musical_ly", version_code: "300904", device_platform: "android", device_type: "ASUS_Z01QD", os_version: "9", aid: "1180" });
-      const r = await fetch(`${h}/aweme/v1/feed/?${q}`, { headers: { "User-Agent": MOBILE_UA }, signal: AbortSignal.timeout(3000) });
+      const r = await fetch(`${h}/aweme/v1/feed/?${q}`, { headers: { "User-Agent": MOBILE_UA }, signal: AbortSignal.timeout(4000) });
       const j = await r.json();
-      const a = (j.aweme_list || []).find((x) => String(x.aweme_id) === String(id)) || (j.aweme_list || [])[0];
+      const a = (j.aweme_list || []).find((x) => String(x.aweme_id) === String(id));
       if (a && a.video) return a.video;
     } catch (e) { lastErr = e; }
   }
@@ -200,25 +203,28 @@ function build(it, w, url, scraped, errs, mv, probed = {}) {
     if (b?.FPS || b?.fps || b?._fps) return Number(b.FPS || b.fps || b._fps);
     try { const x = JSON.parse(b.VideoExtra); return Number(x.fps || x.FPS || x.real_fps || x.out_fps) || null; } catch { return null; }
   };
-  const streams = (v.bitrateInfo || []).map((b) => {
-    const pa = b.PlayAddr || {};
-    const f = fpsOf(b) || fpsMap[b.GearName] || Number(v.fps || 0) || maxFps || null;
-    if (f) maxFps = Math.max(maxFps || 0, f);
-    return {
-      gear: b.GearName || "", src: "web", quality: b.QualityType ?? null,
-      w: pa.Width || 0, h: pa.Height || 0, fps: f,
-      bps: b.Bitrate || 0,
-      codec: /265|hevc|bytevc1/i.test(b.CodecType || "") ? "hevc" : "h264",
-      bytes: Number(pa.DataSize || 0), vq: b.VQScore ?? null,
-    };
-  });
+  const streams = [];
   const pas = v.PlayAddrStruct;
   if (pas && (pas.DataSize || pas.Width)) {
     const bytes = Number(pas.DataSize || 0);
     streams.push({
       gear: "play_addr", src: "web", quality: null, w: pas.Width || v.width || 0, h: pas.Height || v.height || 0, fps: Number(v.fps || 0) || probed.pas || maxFps || null,
       bps: Number(v.bitrate || 0) || (dur ? Math.round((bytes * 8) / dur) : 0),
-      codec: /265|hevc/i.test(v.codecType || "") ? "hevc" : "h264", bytes, vq: null,
+      codec: /265|hevc|bytevc1/i.test(v.codecType || v.bitrateInfo?.[0]?.CodecType || "") ? "hevc" : "h264", bytes, vq: null,
+      url: firstUrl(pas) || firstUrl(v.playAddr),
+    });
+  }
+  for (const b of (v.bitrateInfo || [])) {
+    const pa = b.PlayAddr || {};
+    const f = fpsOf(b) || fpsMap[b.GearName] || Number(v.fps || 0) || maxFps || null;
+    if (f) maxFps = Math.max(maxFps || 0, f);
+    streams.push({
+      gear: b.GearName || "", src: "web", quality: b.QualityType ?? null,
+      w: pa.Width || 0, h: pa.Height || 0, fps: f,
+      bps: b.Bitrate || 0,
+      codec: /265|hevc|bytevc1/i.test(b.CodecType || "") ? "hevc" : "h264",
+      bytes: Number(pa.DataSize || 0), vq: b.VQScore ?? null,
+      url: firstUrl(pa),
     });
   }
   if (mv) {
@@ -229,12 +235,34 @@ function build(it, w, url, scraped, errs, mv, probed = {}) {
         gear, src: "phone", quality: null, w: pa.width || 0, h: pa.height || 0, fps: x.fps || maxFps || null,
         bps: x.bps || (dur ? Math.round((bytes * 8) / dur) : 0),
         codec: x.codec || (/bytevc1|265/i.test(gear) ? "hevc" : "h264"), bytes, vq: null,
+        url: firstUrl(pa),
       });
     };
-    mk("play_addr", mv.play_addr, { codec: mv.is_bytevc1 ? "hevc" : "h264" });
+    const topMvBr = (mv.bit_rate || [])[0];
+    const sameAsPas = pas && Number(mv.play_addr?.data_size || 0) === Number(pas.DataSize || 0);
+    const sameBr = (mv.bit_rate || []).find((b) => Number(b.play_addr?.data_size || 0) === Number(mv.play_addr?.data_size || 0));
+    mk("play_addr", mv.play_addr, {
+      fps: sameBr?.FPS || topMvBr?.FPS || maxFps,
+      bps: sameAsPas ? (Number(v.bitrate || 0) || undefined) : (Number(sameBr?.bit_rate || topMvBr?.bit_rate || 0) || undefined),
+      codec: (mv.is_bytevc1 || /265|hevc|bytevc1/i.test(mv.play_addr?.url_key || (sameAsPas ? (v.codecType || v.bitrateInfo?.[0]?.CodecType) : "") || "")) ? "hevc" : "h264",
+    });
     mk("play_addr_h264", mv.play_addr_h264, { codec: "h264" });
     mk("play_addr_bytevc1", mv.play_addr_bytevc1, { codec: "hevc" });
-    for (const b of (mv.bit_rate || [])) mk(b.gear_name || "bit_rate", b.play_addr, { fps: b.FPS, bps: Number(b.bit_rate || 0), codec: b.is_bytevc1 || b.is_h265 ? "hevc" : "h264" });
+    for (const b of (mv.bit_rate || [])) {
+      mk(b.gear_name || "bit_rate", b.play_addr, {
+        fps: b.FPS, bps: Number(b.bit_rate || 0),
+        codec: b.is_bytevc1 || b.is_h265 ? "hevc" : "h264",
+      });
+    }
+  } else if (streams.length) {
+    const webOrig = streams.find((s) => s.src === "web" && /^original_/i.test(s.gear));
+    const webPas = streams.find((s) => s.src === "web" && s.gear === "play_addr");
+    if (webPas) {
+      streams.push({ ...webPas, src: "phone" });
+    }
+    if (webOrig) {
+      streams.push({ ...webOrig, src: "phone", codec: "h264" });
+    }
   }
   if (maxFps) {
     for (const s of streams) if (!s.fps) s.fps = maxFps;
@@ -341,16 +369,32 @@ function report(d, html = false) {
     const groups = new Map();
     for (const t of d.streams) {
       const k = `${resLabel(t)}|${(t.bps / 1e6).toFixed(1)}|${t.codec}|${(t.bytes / 1048576).toFixed(1)}`;
-      if (!groups.has(k)) groups.set(k, { t, gears: [] });
-      groups.get(k).gears.push((t.src === "phone" ? "📱" : "🌐") + (t.gear || "play_addr"));
+      if (!groups.has(k)) groups.set(k, { t, byGear: new Map() });
+      const gName = t.gear || "play_addr";
+      const gMap = groups.get(k).byGear;
+      if (!gMap.has(gName)) gMap.set(gName, { icons: new Set(), url: t.url || d.links?.hd || "" });
+      const entry = gMap.get(gName);
+      entry.icons.add(t.src === "phone" ? "📱" : "🌐");
+      if (!entry.url && t.url) entry.url = t.url;
     }
     const q = [];
-    for (const { t, gears } of groups.values()) {
+    for (const { t, byGear } of groups.values()) {
       if (q.length) q.push("");
-      q.push([...new Set(gears)].join("  "));
-      q.push(`${resLabel(t)} • ${(t.bps / 1e6).toFixed(1)} MBps • ${t.codec} • ${(t.bytes / 1048576).toFixed(1)} MB`);
+      const labels = [];
+      for (const [gName, info] of byGear.entries()) {
+        const ic = [...info.icons].join(" ");
+        if (html) {
+          const link = info.url ? `<a href="${esc(info.url)}">${esc(gName)}</a>` : esc(gName);
+          labels.push(`${ic} ${link}`);
+        } else {
+          labels.push(`${ic} ${gName}`);
+        }
+      }
+      q.push(labels.join("  "));
+      const specLine = `${resLabel(t)} • ${(t.bps / 1e6).toFixed(1)} MBps • ${t.codec} • ${(t.bytes / 1048576).toFixed(1)} MB`;
+      q.push(html ? esc(specLine) : specLine);
     }
-    seg.push({ quote: q });
+    seg.push({ quote: q, rawHtml: true });
   }
   L(` ┃ Original | ${d.original.w}x${d.original.h}`, ` ┃ VQ Score | ${d.vq ?? "—"}`, "");
   if (d.categories.length) L("🏷 Categories", ...d.categories.map((c) => ` ┃ ${c}`), "");
@@ -358,7 +402,7 @@ function report(d, html = false) {
   L("⚡️Shura RTX® | Downloader & Checker");
   return seg.map((x) => typeof x === "string"
     ? (html ? esc(x) : x)
-    : (html ? `<blockquote expandable>${x.quote.map(esc).join("\n")}</blockquote>` : x.quote.join("\n"))
+    : (html ? `<blockquote expandable>${(x.rawHtml ? x.quote : x.quote.map(esc)).join("\n")}</blockquote>` : x.quote.join("\n"))
   ).join("\n");
 }
 
@@ -498,13 +542,13 @@ async function handleCallback(cq, env) {
     if (k === "v") await tg(env, "sendChatAction", { chat_id: chat, action: "upload_video" });
     const d = await analyze(`https://www.tiktok.com/@${user || "_"}/video/${id}`);
     if (k === "v") return await sendFile(env, chat, d);
-    const rows = [];
-    rows.push([{ text: "▶️ Download Original Video", callback_data: `v|${d.id}|${d.username}`.slice(0, 64) }]);
-    if (d.links.music) rows.push([{ text: "🎵 Audio MP3", url: d.links.music }]);
+    const rows = [
+      [{ text: "▶️ Download Original Video", callback_data: `v|${d.id}|${d.username}`.slice(0, 64) }],
+    ];
     await tg(env, "sendMessage", {
       chat_id: chat, text: d.reportHtml, parse_mode: "HTML", disable_web_page_preview: true,
       reply_to_message_id: cq.message.message_id, allow_sending_without_reply: true,
-      ...(rows.length ? { reply_markup: { inline_keyboard: rows } } : {}),
+      reply_markup: { inline_keyboard: rows },
     });
   } catch (e) {
     await tg(env, "sendMessage", { chat_id: chat, text: "❌ " + esc(e.message), parse_mode: "HTML" });
