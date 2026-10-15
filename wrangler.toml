@@ -1,0 +1,7 @@
+name = "shura-rtx"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
+
+# BOT_TOKEN NO va aquí: agrégalo en Cloudflare → Workers → shura-rtx →
+# Settings → Variables and Secrets (tipo Secret). Así el token nunca se sube a GitHub.

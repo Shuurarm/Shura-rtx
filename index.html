@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <title>Shura RTX® | TikTok Video Inspector & 4K Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: { extend: { colors: { brand: { cyan: '#00f2fe', blue: '#4facfe', pink: '#ff007f', dark: '#0b0f19', card: '#131b2e', border: '#1e293b' } } } }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background: radial-gradient(circle at top, #162035 0%, #080c14 100%); min-height: 100vh; color: #e2e8f0; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .glass { background: rgba(19, 27, 46, 0.75); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .tab-active { background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%); color: #080c14; font-weight: 700; }
+  </style>
+</head>
+<body class="p-4 md:p-8">
+  <div class="max-w-5xl mx-auto space-y-6">
+
+    <header class="glass rounded-2xl p-6 relative overflow-hidden">
+      <div class="absolute -right-10 -top-10 w-44 h-44 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
+      <div class="absolute -left-10 -bottom-10 w-44 h-44 bg-pink-500/10 rounded-full blur-3xl pointer-events-none"></div>
+      <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-cyan-400 to-pink-500 flex items-center justify-center text-black font-black text-2xl shadow-lg">⚡</div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h1 class="text-2xl md:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-cyan-300 via-white to-pink-400 bg-clip-text text-transparent">Shura RTX® • TikTok Analytics & Quality Checker</h1>
+            </div>
+            <p class="text-xs md:text-sm text-slate-400">Analizador de calidad 4K/60, Bitrate, VQ Score, Shadowban, Estadísticas y Centro de Control de Bot de Telegram</p>
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="btnToggleBotPanel" class="inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-bold bg-pink-500/20 hover:bg-pink-500/30 text-pink-300 border border-pink-500/40 transition cursor-pointer">🤖 Configurar / Encender Bot Telegram</button>
+          <span class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">⚡ Shura RTX® Official</span>
+        </div>
+      </div>
+    </header>
+
+    <div id="botControlPanel" class="hidden glass rounded-2xl p-6 border border-pink-500/30 space-y-5">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <h2 class="text-base md:text-lg font-bold text-white flex items-center gap-2"><span>🤖 Centro de Conexión de Bot de Telegram — Shura RTX®</span></h2>
+          <p class="text-xs text-slate-400 mt-0.5">Activa el Webhook de Cloudflare en 1 clic o enciende el bot directamente desde tu navegador con respuesta instantánea.</p>
+        </div>
+        <span id="botLiveBadge" class="px-3 py-1 rounded-full text-xs font-bold bg-slate-800 text-slate-400 border border-slate-700">Desconectado</span>
+      </div>
+      <div class="space-y-3">
+        <label class="block text-xs font-bold text-slate-300 uppercase tracking-wider">1. Pega tu Token de Telegram (@BotFather):</label>
+        <input type="password" id="tgBotTokenInput" placeholder="Ejemplo: 7123456789:AAHxyz1234567890abcdef..." class="w-full px-4 py-3 rounded-xl bg-slate-900/90 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-pink-400 text-xs mono" />
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-slate-900/70 p-4 rounded-xl border border-cyan-500/30 space-y-3 flex flex-col justify-between">
+          <div class="space-y-1.5">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-400/20 text-cyan-300">Funciona al Instante sin Cloudflare</span>
+            <h3 class="font-bold text-white text-sm">Opción A: Encender Bot directo desde aquí</h3>
+            <p class="text-xs text-slate-400 leading-relaxed">Conecta tu bot directamente usando esta pestaña del navegador. Mientras tengas esta pestaña abierta, el bot responderá en Telegram con la firma <strong>Shura RTX®</strong>.</p>
+          </div>
+          <div class="pt-2 flex items-center gap-2">
+            <button id="btnStartBrowserBot" class="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-bold text-xs shadow transition">⚡ Encender Bot en Vivo Ahora</button>
+            <button id="btnStopBrowserBot" class="hidden w-full py-2.5 px-4 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs shadow transition">⏹ Detener Bot en Vivo</button>
+          </div>
+        </div>
+        <div class="bg-slate-900/70 p-4 rounded-xl border border-pink-500/30 space-y-3 flex flex-col justify-between">
+          <div class="space-y-2">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-400/20 text-pink-300">Para dejarlo 24/7 en Cloudflare</span>
+            <h3 class="font-bold text-white text-sm">Opción B: Vincular Webhook con tu Cloudflare</h3>
+            <p class="text-xs text-slate-400 leading-relaxed">Pega aquí la URL de tu Worker (<code class="text-pink-300">https://...workers.dev</code>). Esta misma URL se usa para analizar videos desde GitHub Pages.</p>
+            <input type="text" id="cfWorkerUrlInput" placeholder="https://tu-bot.tu-usuario.workers.dev" class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-pink-400 text-xs mono" />
+          </div>
+          <div class="pt-1 flex gap-2">
+            <button id="btnSetWebhook" class="flex-1 py-2.5 px-3 rounded-xl bg-pink-500 hover:bg-pink-400 text-slate-950 font-bold text-xs shadow transition">🔗 Conectar Webhook</button>
+            <button id="btnCheckBotStatus" class="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 transition">🔍 Diagnosticar</button>
+          </div>
+        </div>
+      </div>
+      <div id="botConsoleBox" class="bg-slate-950/90 p-3.5 rounded-xl border border-slate-800 mono text-xs text-slate-300 max-h-44 overflow-y-auto space-y-1">
+        <div class="text-slate-500">[Consola Shura RTX®] Pega tu Token de Telegram arriba para diagnosticar o iniciar tu bot...</div>
+      </div>
+    </div>
+
+    <div class="glass rounded-2xl p-6 shadow-xl space-y-4">
+      <label for="tiktokUrl" class="block text-sm font-semibold text-slate-300">Pega el enlace del video de TikTok:</label>
+      <div class="flex flex-col sm:flex-row gap-3">
+        <div class="relative flex-1">
+          <input type="text" id="tiktokUrl" placeholder="https://www.tiktok.com/@usuario/video/7683044390956190994 o vm.tiktok.com/..." class="w-full px-4 py-3.5 rounded-xl bg-slate-900/90 border border-slate-700/80 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 text-sm mono transition-all" />
+        </div>
+        <button id="btnAnalyze" class="px-6 py-3.5 bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-bold rounded-xl shadow-lg hover:shadow-cyan-500/25 transition-all flex items-center justify-center gap-2 active:scale-95">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+          <span>Analizar Video</span>
+        </button>
+      </div>
+      <div class="flex items-center justify-between text-xs text-slate-500 pt-1">
+        <span id="connectionNodeStatus" class="text-cyan-400/80 mono">⚡ Motor Shura RTX® vía Cloudflare Worker</span>
+        <span>Soporta URLs completas, vt.tiktok y vm.tiktok • Motor Shura RTX®</span>
+      </div>
+    </div>
+
+    <div id="loadingBox" class="hidden glass rounded-2xl p-10 text-center space-y-4">
+      <div class="inline-block w-12 h-12 border-4 border-cyan-400/20 border-t-cyan-400 rounded-full animate-spin"></div>
+      <h3 class="text-lg font-bold text-white" id="loadingStepTitle">Extrayendo metadatos profundos con Shura RTX®...</h3>
+      <p class="text-sm text-slate-400 max-w-md mx-auto" id="loadingStepSub">Consultando TikTok y TikWM en paralelo desde tu Worker...</p>
+    </div>
+
+    <div id="errorBox" class="hidden rounded-2xl p-5 bg-rose-500/10 border border-rose-500/30 text-rose-300 flex items-start gap-3">
+      <svg class="w-6 h-6 flex-shrink-0 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+      <div>
+        <h4 class="font-bold text-sm" id="errorTitle">Aviso</h4>
+        <p class="text-xs text-rose-200/80 mt-1" id="errorMessage"></p>
+      </div>
+    </div>
+
+    <div id="resultsSection" class="hidden space-y-6">
+      <div class="flex rounded-xl bg-slate-900/80 p-1 border border-slate-800 text-xs font-semibold overflow-x-auto">
+        <button id="tabBtnTelegram" class="flex-1 py-2.5 px-4 rounded-lg tab-active transition-all whitespace-nowrap flex items-center justify-center gap-2"><span>⚡ Formato Telegram (Shura RTX®)</span></button>
+        <button id="tabBtnDashboard" class="flex-1 py-2.5 px-4 rounded-lg text-slate-400 hover:text-white transition-all whitespace-nowrap flex items-center justify-center gap-2"><span>📊 Dashboard & Analíticas PRO</span></button>
+        <button id="tabBtnTechnical" class="flex-1 py-2.5 px-4 rounded-lg text-slate-400 hover:text-white transition-all whitespace-nowrap flex items-center justify-center gap-2"><span>⚙️ Streams, Codecs & Calidad</span></button>
+        <button id="tabBtnDownload" class="flex-1 py-2.5 px-4 rounded-lg text-slate-400 hover:text-white transition-all whitespace-nowrap flex items-center justify-center gap-2"><span>📥 Descarga Directa HD/4K</span></button>
+      </div>
+
+      <div id="tabContentTelegram" class="glass rounded-2xl p-6 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+          <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-cyan-400"></span><h3 class="font-bold text-white text-base">Reporte Shura RTX® para Telegram</h3></div>
+          <button id="btnCopyTelegram" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-lg text-xs font-bold border border-cyan-500/30 flex items-center gap-1.5 transition active:scale-95">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+            <span id="copyBtnText">Copiar Mensaje Telegram</span>
+          </button>
+        </div>
+        <pre id="telegramTextOutput" class="mono text-xs md:text-sm bg-slate-950/90 p-5 rounded-xl border border-slate-800/80 text-emerald-300 overflow-x-auto whitespace-pre leading-relaxed select-all"></pre>
+      </div>
+
+      <div id="tabContentDashboard" class="hidden space-y-6">
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div class="glass p-4 rounded-xl border border-slate-800/80"><span class="text-xs text-slate-400 flex items-center gap-1">👁 Vistas</span><p id="statViews" class="text-lg font-black text-white mt-1 mono">0</p></div>
+          <div class="glass p-4 rounded-xl border border-slate-800/80"><span class="text-xs text-rose-400 flex items-center gap-1">❤️ Likes</span><p id="statLikes" class="text-lg font-black text-rose-300 mt-1 mono">0</p></div>
+          <div class="glass p-4 rounded-xl border border-slate-800/80"><span class="text-xs text-cyan-400 flex items-center gap-1">💬 Comentarios</span><p id="statComments" class="text-lg font-black text-cyan-300 mt-1 mono">0</p></div>
+          <div class="glass p-4 rounded-xl border border-slate-800/80"><span class="text-xs text-amber-400 flex items-center gap-1">⭐️ Favoritos</span><p id="statFavorites" class="text-lg font-black text-amber-300 mt-1 mono">0</p></div>
+          <div class="glass p-4 rounded-xl border border-slate-800/80"><span class="text-xs text-blue-400 flex items-center gap-1">➡️ Compartidos</span><p id="statShares" class="text-lg font-black text-blue-300 mt-1 mono">0</p></div>
+          <div class="glass p-4 rounded-xl border border-slate-800/80"><span class="text-xs text-purple-400 flex items-center gap-1">⬇️ Descargas</span><p id="statDownloads" class="text-lg font-black text-purple-300 mt-1 mono">0</p></div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="glass p-5 rounded-2xl border border-slate-800 space-y-3">
+            <div class="flex items-center justify-between"><span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Tasa de Interacción (ER)</span><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-400/20 text-cyan-300">Algoritmo</span></div>
+            <div class="flex items-baseline gap-2"><span id="metricER" class="text-3xl font-black text-cyan-400 mono">0%</span><span id="metricERRating" class="text-xs font-semibold text-emerald-400">Excelente</span></div>
+            <p class="text-xs text-slate-400 leading-relaxed">Calculado como (Likes + Comentarios + Guardados + Shares) ÷ Vistas. Un ER > 8% indica alto interés orgánico en TikTok.</p>
+          </div>
+          <div class="glass p-5 rounded-2xl border border-slate-800 space-y-3">
+            <div class="flex items-center justify-between"><span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Calidad Visual (VQ Score)</span><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-400/20 text-pink-300">Shura RTX®</span></div>
+            <div class="flex items-baseline gap-2"><span id="metricVQ" class="text-3xl font-black text-pink-400 mono">0</span><span id="metricVQRating" class="text-xs font-semibold text-slate-400">Procesado</span></div>
+            <p class="text-xs text-slate-400 leading-relaxed">El <strong>VQ Score</strong> mide la nitidez y textura que TikTok preservó tras compresión. Se muestra el valor real que TikTok entrega; si no lo incluye para ese video, aparece "—".</p>
+          </div>
+          <div class="glass p-5 rounded-2xl border border-slate-800 space-y-3">
+            <div class="flex items-center justify-between"><span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Estado de Distribución</span><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-400/20 text-emerald-300">Auditoría</span></div>
+            <div class="flex items-center gap-2"><span id="metricShadowban" class="text-xl font-bold text-emerald-400 flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-emerald-400"></span> Sin Shadowban</span></div>
+            <div class="text-xs text-slate-300 space-y-1">
+              <p>📍 <strong>Región de publicación:</strong> <span id="metricRegion" class="mono text-cyan-300">N/A</span></p>
+              <p>🔗 <strong>Dispositivo / Origen:</strong> <span id="metricSource" class="mono text-slate-300">Browser</span></p>
+            </div>
+          </div>
+        </div>
+        <div class="glass p-6 rounded-2xl border border-slate-800 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="space-y-4">
+            <h4 class="font-bold text-sm text-slate-300 flex items-center gap-2">
+              <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+              Creador y Descripción
+            </h4>
+            <div class="flex items-center gap-3">
+              <img id="authorAvatar" referrerpolicy="no-referrer" class="w-12 h-12 rounded-full border-2 border-cyan-400/30 object-cover" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%231e293b'/%3E%3Ctext x='50' y='55' font-size='40' text-anchor='middle' fill='%2300f2fe' font-family='sans-serif'%3E⚡%3C/text%3E%3C/svg%3E" alt="Avatar" />
+              <div><p id="authorName" class="font-bold text-white text-sm">Creador</p><p id="authorHandle" class="text-xs text-cyan-400 mono">@username</p></div>
+            </div>
+            <p id="videoDesc" class="text-xs text-slate-300 bg-slate-900/60 p-3 rounded-xl border border-slate-800 leading-relaxed"></p>
+            <div class="flex items-center gap-4 text-xs text-slate-400">
+              <span>🗓 <strong id="videoDate" class="text-slate-200">--</strong></span>
+              <span>⏱ Duración: <strong id="videoDuration" class="text-slate-200">0s</strong></span>
+            </div>
+          </div>
+          <div class="space-y-4">
+            <h4 class="font-bold text-sm text-slate-300 flex items-center gap-2">
+              <svg class="w-4 h-4 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path></svg>
+              Música / Audio Utilizado
+            </h4>
+            <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-3">
+              <p id="musicTitle" class="text-xs font-semibold text-pink-300 flex items-center gap-1.5">🎵 <span>original sound</span></p>
+              <p id="musicAuthor" class="text-xs text-slate-400">Autor: <span class="text-slate-200">--</span></p>
+              <audio id="audioPreview" controls class="w-full h-8 mt-2"></audio>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tabContentTechnical" class="hidden glass rounded-2xl p-6 space-y-6">
+        <div class="space-y-2">
+          <h3 class="text-base font-bold text-white flex items-center gap-2"><span>⭐️ Desglose de Resoluciones y Bitrates (play_addr)</span></h3>
+          <p class="text-xs text-slate-400">Streams reales (bitrateInfo) que entrega el servidor de TikTok para este video.</p>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-900/90 text-slate-400 border-b border-slate-800">
+              <tr><th class="py-3 px-4">Gear</th><th class="py-3 px-4">Resolución</th><th class="py-3 px-4">Bitrate</th><th class="py-3 px-4">Códec</th><th class="py-3 px-4">Tamaño</th><th class="py-3 px-4">VQ Score</th></tr>
+            </thead>
+            <tbody id="streamsTableBody" class="divide-y divide-slate-800/60 mono"></tbody>
+          </table>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-800 text-xs">
+          <div class="bg-slate-900/50 p-4 rounded-xl border border-slate-800/70"><h5 class="font-bold text-cyan-300 mb-2 flex items-center gap-1">🏷 Categorías Internas</h5><ul id="categoriesList" class="space-y-1 text-slate-300"></ul></div>
+          <div class="bg-slate-900/50 p-4 rounded-xl border border-slate-800/70"><h5 class="font-bold text-amber-300 mb-2 flex items-center gap-1">💡 Tips / Palabras Sugeridas (SEO TikTok)</h5><ul id="tipsList" class="space-y-1 text-slate-300"></ul></div>
+        </div>
+      </div>
+
+      <div id="tabContentDownload" class="hidden glass rounded-2xl p-6 space-y-6">
+        <div class="space-y-1"><h3 class="text-base font-bold text-white">Descargas Rápidas Sin Marca de Agua</h3><p class="text-xs text-slate-400">Enlaces directos a los servidores CDN en máxima resolución disponible.</p></div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <a id="btnDownloadHD" href="#" target="_blank" rel="noreferrer" download class="p-5 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border border-cyan-500/40 hover:border-cyan-400 transition flex flex-col justify-between group">
+            <div><div class="w-10 h-10 rounded-xl bg-cyan-400/20 text-cyan-300 flex items-center justify-center font-bold text-lg mb-3">🎬</div><h4 class="font-bold text-white text-sm group-hover:text-cyan-300 transition">Video HD / 4K</h4><p class="text-xs text-slate-400 mt-1">Sin marca de agua en formato original (.mp4)</p></div>
+            <span class="mt-4 inline-flex items-center gap-1 text-xs font-bold text-cyan-400">Descargar Video &rarr;</span>
+          </a>
+          <a id="btnDownloadAudio" href="#" target="_blank" rel="noreferrer" download class="p-5 rounded-2xl bg-gradient-to-br from-pink-500/20 to-purple-500/10 border border-pink-500/40 hover:border-pink-400 transition flex flex-col justify-between group">
+            <div><div class="w-10 h-10 rounded-xl bg-pink-400/20 text-pink-300 flex items-center justify-center font-bold text-lg mb-3">🎵</div><h4 class="font-bold text-white text-sm group-hover:text-pink-300 transition">Audio MP3 Original</h4><p class="text-xs text-slate-400 mt-1">Pista de música o audio limpio extraído (.mp3)</p></div>
+            <span class="mt-4 inline-flex items-center gap-1 text-xs font-bold text-pink-400">Descargar Audio &rarr;</span>
+          </a>
+          <a id="btnDownloadCover" href="#" target="_blank" rel="noreferrer" download class="p-5 rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-500/10 border border-amber-500/40 hover:border-amber-400 transition flex flex-col justify-between group">
+            <div><div class="w-10 h-10 rounded-xl bg-amber-400/20 text-amber-300 flex items-center justify-center font-bold text-lg mb-3">🖼</div><h4 class="font-bold text-white text-sm group-hover:text-amber-300 transition">Miniatura HD</h4><p class="text-xs text-slate-400 mt-1">Portada original en máxima calidad sin recortes</p></div>
+            <span class="mt-4 inline-flex items-center gap-1 text-xs font-bold text-amber-400">Descargar Portada &rarr;</span>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <footer class="glass rounded-2xl p-6 border border-slate-800/80 text-xs text-slate-400 space-y-4">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+        <h4 class="font-bold text-slate-200 flex items-center gap-2"><span>⚡ Shura RTX® | Downloader & Checker Suite</span></h4>
+        <span class="text-cyan-400 font-semibold">© Shura RTX® — Todos los derechos reservados</span>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-800">
+          <p class="font-bold text-white mb-1">Velocidad vía Cloudflare Worker</p>
+          <p class="text-slate-400 leading-relaxed">La web llama a tu propio Worker, que consulta TikTok y TikWM en paralelo desde el servidor: sin proxies públicos y sin errores 403.</p>
+        </div>
+        <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-800">
+          <p class="font-bold text-white mb-1">Bot de Telegram 24/7</p>
+          <p class="text-slate-400 leading-relaxed">El Webhook apunta a /webhook en tu Worker, que responde con el reporte Shura RTX® y botones de descarga.</p>
+        </div>
+      </div>
+    </footer>
+
+  </div>
+
+  <script>
+    // =========================================================================
+    // CONEXIÓN AL WORKER DE CLOUDFLARE (/api) — sin proxies públicos, sin 403
+    // =========================================================================
+    const WORKER_URL = ''; // Opcional: pon aquí la URL de tu Worker (https://shura-rtx.tu-usuario.workers.dev)
+    let currentVideoData = null;
+
+    function getApiBase() {
+      const h = location.hostname;
+      const external = location.protocol === 'file:' || h.endsWith('github.io');
+      if (!external) return location.origin; // servido desde el propio Worker
+      let u = (document.getElementById('cfWorkerUrlInput').value || '').trim() || localStorage.getItem('shura_rtx_cf_url') || WORKER_URL;
+      u = u.trim().replace(/\/+$/, '').replace(/\/webhook$/, '');
+      if (u && !u.startsWith('http')) u = 'https://' + u;
+      return u;
+    }
+
+    async function fetchWithAnti403(inputUrl) {
+      const base = getApiBase();
+      if (!base) throw new Error('Pega la URL de tu Worker de Cloudflare en "Configurar / Encender Bot Telegram" → Opción B (campo https://...workers.dev).');
+      try { if (base !== location.origin) localStorage.setItem('shura_rtx_cf_url', base); } catch (e) {}
+      const statusEl = document.getElementById('connectionNodeStatus');
+      const t0 = performance.now();
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 10000);
+      try {
+        const res = await fetch(`${base}/api?url=${encodeURIComponent(inputUrl)}`, { signal: ctrl.signal });
+        const json = await res.json();
+        if (!json.ok) throw new Error(json.error || 'Error del Worker');
+        if (statusEl) statusEl.textContent = `⚡ Respuesta del Worker en ${((performance.now() - t0) / 1000).toFixed(2)}s ✓`;
+        return { data: json };
+      } catch (e) {
+        if (e.name === 'AbortError') throw new Error('El Worker tardó demasiado. Inténtalo de nuevo.');
+        throw e;
+      } finally { clearTimeout(timer); }
+    }
+
+    // Tab switcher
+    const tabBtns = [
+      { btn: document.getElementById('tabBtnTelegram'), content: document.getElementById('tabContentTelegram') },
+      { btn: document.getElementById('tabBtnDashboard'), content: document.getElementById('tabContentDashboard') },
+      { btn: document.getElementById('tabBtnTechnical'), content: document.getElementById('tabContentTechnical') },
+      { btn: document.getElementById('tabBtnDownload'), content: document.getElementById('tabContentDownload') },
+    ];
+    tabBtns.forEach(({ btn, content }) => {
+      btn.addEventListener('click', () => {
+        tabBtns.forEach(t => { t.btn.classList.remove('tab-active'); t.btn.classList.add('text-slate-400'); t.content.classList.add('hidden'); });
+        btn.classList.add('tab-active'); btn.classList.remove('text-slate-400'); content.classList.remove('hidden');
+      });
+    });
+
+    function formatNum(n) { return Number(n || 0).toLocaleString('en-US'); }
+    function formatDuration(sec) { const m = Math.floor(sec / 60), s = Math.floor(sec % 60); return `${m}:${s < 10 ? '0' : ''}${s}`; }
+    const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    // El reporte exacto Shura RTX® ya viene armado desde el Worker (datos reales)
+    function buildTelegramTemplate(data) { return data.report; }
+
+    // Los datos ya vienen reales y unificados desde el Worker: solo se normalizan
+    function parseRawVideoData(d) {
+      return {
+        ...d,
+        handle: d.username,
+        title: d.desc,
+        musicTitle: d.music.title,
+        musicAuthor: d.music.author,
+        views: d.stats.views, likes: d.stats.likes, comments: d.stats.comments,
+        favorites: d.stats.favorites, shares: d.stats.shares, downloads: d.stats.downloads,
+        er: d.stats.er,
+        vqScore: d.vq,
+        videoUrl: d.links.hd || d.links.sd,
+        audioUrl: d.links.music,
+        coverUrl: d.links.cover
+      };
+    }
+
+    function renderVideoData(data) {
+      currentVideoData = data;
+      document.getElementById('loadingBox').classList.add('hidden');
+      document.getElementById('errorBox').classList.add('hidden');
+      document.getElementById('resultsSection').classList.remove('hidden');
+
+      document.getElementById('telegramTextOutput').textContent = buildTelegramTemplate(data);
+
+      document.getElementById('statViews').textContent = formatNum(data.views);
+      document.getElementById('statLikes').textContent = formatNum(data.likes);
+      document.getElementById('statComments').textContent = formatNum(data.comments);
+      document.getElementById('statFavorites').textContent = formatNum(data.favorites);
+      document.getElementById('statShares').textContent = formatNum(data.shares);
+      document.getElementById('statDownloads').textContent = formatNum(data.downloads);
+
+      const er = parseFloat(data.er) || 0;
+      document.getElementById('metricER').textContent = `${data.er}%`;
+      const erRating = document.getElementById('metricERRating');
+      if (er >= 10) { erRating.textContent = '🔥 Viral / Excelente'; erRating.className = 'text-xs font-semibold text-emerald-400'; }
+      else if (er >= 5) { erRating.textContent = '⚡️ Muy Bueno'; erRating.className = 'text-xs font-semibold text-cyan-400'; }
+      else { erRating.textContent = 'Normal'; erRating.className = 'text-xs font-semibold text-slate-400'; }
+
+      const vq = Number(data.vqScore) || 0;
+      document.getElementById('metricVQ').textContent = data.vqScore ?? '—';
+      const vqRating = document.getElementById('metricVQRating');
+      if (vq > 50) { vqRating.textContent = '🌟 Ultra Alta Calidad'; vqRating.className = 'text-xs font-semibold text-pink-400'; }
+      else if (vq > 0) { vqRating.textContent = 'Estándar'; vqRating.className = 'text-xs font-semibold text-slate-400'; }
+      else { vqRating.textContent = 'No reportado por TikTok'; vqRating.className = 'text-xs font-semibold text-slate-500'; }
+
+      document.getElementById('metricRegion').textContent = `${data.region.flag} ${data.region.name}${data.region.code ? ' (' + data.region.code + ')' : ''}`;
+      document.getElementById('metricSource').textContent = data.source;
+
+      const shadowEl = document.getElementById('metricShadowban');
+      if (data.shadowBan === 'Yes') {
+        shadowEl.innerHTML = '<span class="w-3 h-3 rounded-full bg-rose-400"></span> Con Restricción / Shadowban';
+        shadowEl.className = 'text-xl font-bold text-rose-400 flex items-center gap-1.5';
+      } else {
+        shadowEl.innerHTML = '<span class="w-3 h-3 rounded-full bg-emerald-400"></span> Sin Shadowban (Público)';
+        shadowEl.className = 'text-xl font-bold text-emerald-400 flex items-center gap-1.5';
+      }
+
+      document.getElementById('authorName').textContent = data.author;
+      document.getElementById('authorHandle').textContent = `@${data.handle}`;
+      if (data.avatar) document.getElementById('authorAvatar').src = data.avatar;
+      document.getElementById('videoDesc').textContent = data.title || '(Sin descripción)';
+      document.getElementById('videoDate').textContent = data.date;
+      document.getElementById('videoDuration').textContent = `${data.duration}s (${formatDuration(data.duration)})`;
+
+      document.getElementById('musicTitle').innerHTML = `🎵 <span>${esc(data.musicTitle)}</span>`;
+      document.getElementById('musicAuthor').innerHTML = `Autor: <span class="text-slate-200">${esc(data.musicAuthor)}</span>`;
+      if (data.audioUrl) document.getElementById('audioPreview').src = data.audioUrl;
+
+      const tbody = document.getElementById('streamsTableBody');
+      tbody.innerHTML = (data.streams || []).length ? data.streams.map((s, i) => {
+        const r = Math.min(s.w, s.h);
+        return `<tr class="${i === 0 ? 'bg-cyan-500/5 ' : ''}hover:bg-slate-800/40 transition">
+          <td class="py-3 px-4 ${i === 0 ? 'font-semibold text-cyan-300' : 'text-slate-300'}">${esc(s.gear || 'play_addr')}</td>
+          <td class="py-3 px-4 text-white">${r >= 2160 ? '4K' : r + 'p'}${s.fps || ''} (${s.w}x${s.h})</td>
+          <td class="py-3 px-4 text-emerald-300">${(s.bps / 1e6).toFixed(2)} Mbps</td>
+          <td class="py-3 px-4 text-purple-300 uppercase">${s.codec}</td>
+          <td class="py-3 px-4 text-slate-200">${(s.bytes / 1048576).toFixed(2)} MB</td>
+          <td class="py-3 px-4 text-pink-300 font-bold">${s.vq ?? '—'}</td></tr>`;
+      }).join('') : '<tr><td colspan="6" class="py-4 px-4 text-slate-400">TikTok no entregó la lista de streams para este video.</td></tr>';
+
+      const fill = (id, arr) => {
+        const ul = document.getElementById(id); ul.innerHTML = '';
+        (arr || []).forEach(c => { const li = document.createElement('li'); li.textContent = `┃ ${c}`; ul.appendChild(li); });
+      };
+      fill('categoriesList', data.categories);
+      fill('tipsList', data.tips);
+
+      document.getElementById('btnDownloadHD').href = data.videoUrl || '#';
+      document.getElementById('btnDownloadAudio').href = data.audioUrl || '#';
+      document.getElementById('btnDownloadCover').href = data.coverUrl || '#';
+    }
+
+    document.getElementById('btnCopyTelegram').addEventListener('click', () => {
+      const text = document.getElementById('telegramTextOutput').textContent;
+      const btnText = document.getElementById('copyBtnText');
+      const done = m => { btnText.textContent = m; setTimeout(() => { btnText.textContent = 'Copiar Mensaje Telegram'; }, 2000); };
+      navigator.clipboard.writeText(text).then(() => done('¡Copiado con Éxito!')).catch(() => {
+        const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta); done('¡Copiado!');
+      });
+    });
+
+    function showErrorMessage(title, msg) {
+      document.getElementById('loadingBox').classList.add('hidden');
+      document.getElementById('errorBox').classList.remove('hidden');
+      document.getElementById('errorTitle').textContent = title;
+      document.getElementById('errorMessage').textContent = msg;
+    }
+
+    async function fetchTikTokData(inputUrl) {
+      document.getElementById('loadingBox').classList.remove('hidden');
+      document.getElementById('errorBox').classList.add('hidden');
+      document.getElementById('resultsSection').classList.add('hidden');
+      try {
+        const json = await fetchWithAnti403(inputUrl);
+        renderVideoData(parseRawVideoData(json.data));
+      } catch (err) { showErrorMessage('Error al consultar API', err.message); }
+    }
+
+    document.getElementById('btnAnalyze').addEventListener('click', () => {
+      const url = document.getElementById('tiktokUrl').value.trim();
+      if (!url) { showErrorMessage('Enlace requerido', 'Por favor pega un enlace válido de TikTok en el campo superior para comenzar el análisis.'); return; }
+      fetchTikTokData(url);
+    });
+    document.getElementById('tiktokUrl').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btnAnalyze').click(); });
+
+    // =========================================================================
+    // CENTRO DE BOT DE TELEGRAM
+    // =========================================================================
+    const botPanel = document.getElementById('botControlPanel');
+    const botConsole = document.getElementById('botConsoleBox');
+    const botBadge = document.getElementById('botLiveBadge');
+    let pollingActive = false, pollingTimeout = null, lastUpdateId = 0;
+
+    document.getElementById('btnToggleBotPanel').addEventListener('click', () => botPanel.classList.toggle('hidden'));
+
+    function logBot(msg, type = 'info') {
+      const div = document.createElement('div');
+      div.className = type === 'error' ? 'text-rose-400' : type === 'success' ? 'text-emerald-400 font-semibold' : type === 'warn' ? 'text-amber-300' : 'text-cyan-300';
+      div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      botConsole.appendChild(div); botConsole.scrollTop = botConsole.scrollHeight;
+    }
+
+    try {
+      const savedToken = localStorage.getItem('shura_rtx_bot_token');
+      const savedUrl = localStorage.getItem('shura_rtx_cf_url');
+      if (savedToken) document.getElementById('tgBotTokenInput').value = savedToken;
+      if (savedUrl) document.getElementById('cfWorkerUrlInput').value = savedUrl;
+    } catch (e) {}
+
+    document.getElementById('btnCheckBotStatus').addEventListener('click', async () => {
+      const token = document.getElementById('tgBotTokenInput').value.trim();
+      if (!token) { logBot('⚠️ Primero pega tu Token de Telegram arriba.', 'warn'); return; }
+      try { localStorage.setItem('shura_rtx_bot_token', token); } catch (e) {}
+      logBot('Consultando estado del bot en Telegram API...');
+      try {
+        const meJson = await (await fetch(`https://api.telegram.org/bot${token}/getMe`)).json();
+        if (!meJson.ok) { logBot(`❌ Token inválido: ${meJson.description}`, 'error'); return; }
+        logBot(`✅ Bot verificado: @${meJson.result.username} (${meJson.result.first_name})`, 'success');
+        const whJson = await (await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`)).json();
+        if (whJson.ok) {
+          const info = whJson.result;
+          if (info.url) {
+            logBot(`🔗 Webhook actual: ${info.url}`);
+            if (info.last_error_message) logBot(`⚠️ Último error de Telegram: "${info.last_error_message}"`, 'warn');
+            else logBot(`✅ Webhook activo sin errores. Pendientes: ${info.pending_update_count}`, 'success');
+          } else logBot('ℹ️ El bot NO tiene Webhook. Usa "Conectar Webhook" o abre /setup en tu Worker.', 'warn');
+        }
+      } catch (err) { logBot(`❌ Error de red al diagnosticar: ${err.message}`, 'error'); }
+    });
+
+    // Conecta el Webhook a <worker>/webhook (la ruta que procesa el Worker)
+    document.getElementById('btnSetWebhook').addEventListener('click', async () => {
+      const token = document.getElementById('tgBotTokenInput').value.trim();
+      let cfUrl = document.getElementById('cfWorkerUrlInput').value.trim().replace(/\/+$/, '').replace(/\/webhook$/, '');
+      if (!token) { logBot('⚠️ Pega tu Token de Telegram en el paso 1.', 'warn'); return; }
+      if (!cfUrl) { logBot('⚠️ Pega la URL de tu Worker (ej. https://tu-bot.workers.dev).', 'warn'); return; }
+      if (!cfUrl.startsWith('http')) cfUrl = 'https://' + cfUrl;
+      try { localStorage.setItem('shura_rtx_bot_token', token); localStorage.setItem('shura_rtx_cf_url', cfUrl); } catch (e) {}
+      if (pollingActive) stopBrowserBot();
+      const hook = `${cfUrl}/webhook`;
+      logBot(`Vinculando Webhook de Telegram hacia ${hook}...`);
+      try {
+        const json = await (await fetch(`https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(hook)}&drop_pending_updates=true`)).json();
+        if (json.ok) {
+          botBadge.textContent = 'Webhook Conectado ✓';
+          botBadge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-pink-500/20 text-pink-300 border border-pink-500/40';
+          logBot(`✅ Webhook vinculado a ${hook}. Envía /start a tu bot.`, 'success');
+        } else logBot(`❌ Error al vincular Webhook: ${json.description}`, 'error');
+      } catch (err) { logBot(`❌ Error al conectar con Telegram: ${err.message}`, 'error'); }
+    });
+
+    async function startBrowserBot() {
+      const token = document.getElementById('tgBotTokenInput').value.trim();
+      if (!token) { logBot('⚠️ Pega tu Token de Telegram en el paso 1 para encender el bot.', 'warn'); return; }
+      try { localStorage.setItem('shura_rtx_bot_token', token); } catch (e) {}
+      logBot('Verificando bot y preparando modo en vivo...');
+      try {
+        const meJson = await (await fetch(`https://api.telegram.org/bot${token}/getMe`)).json();
+        if (!meJson.ok) { logBot(`❌ Token inválido: ${meJson.description}`, 'error'); return; }
+        await fetch(`https://api.telegram.org/bot${token}/deleteWebhook?drop_pending_updates=false`);
+        pollingActive = true;
+        document.getElementById('btnStartBrowserBot').classList.add('hidden');
+        document.getElementById('btnStopBrowserBot').classList.remove('hidden');
+        botBadge.textContent = `🟢 En Vivo (@${meJson.result.username})`;
+        botBadge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse';
+        logBot(`🚀 Bot @${meJson.result.username} ENCENDIDO. Envíale /start o un link de TikTok. (Quita el Webhook de Cloudflare mientras esté activo.)`, 'success');
+        pollTelegramLoop(token);
+      } catch (err) { logBot(`❌ No se pudo iniciar el bot: ${err.message}`, 'error'); }
+    }
+
+    function stopBrowserBot() {
+      pollingActive = false;
+      if (pollingTimeout) clearTimeout(pollingTimeout);
+      document.getElementById('btnStartBrowserBot').classList.remove('hidden');
+      document.getElementById('btnStopBrowserBot').classList.add('hidden');
+      botBadge.textContent = 'Detenido';
+      botBadge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-slate-800 text-slate-400 border border-slate-700';
+      logBot('⏹ Bot en vivo detenido. Para volver al modo 24/7 pulsa "Conectar Webhook".', 'warn');
+    }
+
+    async function sendTgMsg(token, chatId, text, replyMarkup = null) {
+      const payload = { chat_id: chatId, text, disable_web_page_preview: true }; // texto plano: sin errores de entidades
+      if (replyMarkup) payload.reply_markup = replyMarkup;
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    }
+
+    async function pollTelegramLoop(token) {
+      if (!pollingActive) return;
+      try {
+        const json = await (await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=${lastUpdateId + 1}&timeout=15`)).json();
+        if (json.ok && Array.isArray(json.result)) {
+          for (const upd of json.result) {
+            lastUpdateId = Math.max(lastUpdateId, upd.update_id);
+            if (!(upd.message && upd.message.text)) continue;
+            const chatId = upd.message.chat.id, userText = upd.message.text.trim();
+            const sender = upd.message.from ? (upd.message.from.username || upd.message.from.first_name) : chatId;
+            logBot(`📩 Mensaje de ${sender}: ${userText}`);
+            if (userText === '/start' || userText === '/help') {
+              await sendTgMsg(token, chatId, '⚡ Bienvenido a Shura RTX® | Downloader & Checker\n\nEnvía un enlace de TikTok y recibirás estadísticas, calidad, región y descargas sin marca de agua.');
+              continue;
+            }
+            const match = userText.match(/https?:\/\/(?:[\w-]+\.)?tiktok\.com\/[^\s]+/i);
+            if (!match) { await sendTgMsg(token, chatId, '⚠️ Envía un enlace válido de TikTok.'); continue; }
+            try {
+              const parsed = parseRawVideoData((await fetchWithAnti403(match[0])).data);
+              renderVideoData(parsed);
+              const rows = [];
+              if (parsed.links.hd) rows.push([{ text: '🎬 Video HD/4K (Sin Marca)', url: parsed.links.hd }]);
+              if (parsed.links.music) rows.push([{ text: '🎵 Audio MP3', url: parsed.links.music }]);
+              await sendTgMsg(token, chatId, parsed.report, rows.length ? { inline_keyboard: rows } : null);
+              logBot(`✅ Reporte Shura RTX® enviado a ${sender} (ID: ${parsed.id})`, 'success');
+            } catch (err) {
+              await sendTgMsg(token, chatId, `❌ Error al procesar el video: ${err.message}`);
+              logBot(`❌ Error con link de ${sender}: ${err.message}`, 'error');
+            }
+          }
+        }
+      } catch (e) {}
+      if (pollingActive) pollingTimeout = setTimeout(() => pollTelegramLoop(token), 150);
+    }
+
+    document.getElementById('btnStartBrowserBot').addEventListener('click', startBrowserBot);
+    document.getElementById('btnStopBrowserBot').addEventListener('click', stopBrowserBot);
+  </script>
+</body>
+</html>
