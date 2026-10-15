@@ -243,7 +243,10 @@ function build(it, w, url, scraped, errs, mv, probed = {}) {
   const top = streams[0] || null;
   const webTop = streams.find((s) => s.src === "web") || top;
   const phoneTop = streams.find((s) => s.src === "phone") || top;
+  const mainStream = streams.find((s) => s.gear && s.gear !== "play_addr") || top;
   const fps = top?.fps || maxFps || probed.hd || probed.sd || null;
+  const bitrate = mainStream?.bps ? `${(mainStream.bps / 1e6).toFixed(1)} MBps` : "—";
+  const codec = mainStream?.codec ? mainStream.codec.toUpperCase() : "—";
   const vq = v.VQScore ?? v.vqScore ?? top?.vq ?? null;
   const views = Number(st.playCount ?? w.play_count ?? 0);
   const likes = Number(st.diggCount ?? w.digg_count ?? 0);
@@ -278,6 +281,8 @@ function build(it, w, url, scraped, errs, mv, probed = {}) {
     avatar: au.avatarMedium || au.avatarThumb || abs(w.author?.avatar) || "",
     duration: dur,
     fps,
+    bitrate,
+    codec,
     date: fmtDate(it.createTime || w.create_time),
     desc: it.desc || w.title || "",
     music: {
@@ -316,7 +321,7 @@ function report(d, html = false) {
   const L = (...x) => seg.push(...x);
   L("📹 VIDEO • ANALYTICS", "");
   L(`🎵📸 ${d.author}  🗓 ${d.date}`);
-  if (d.desc) L(d.desc);
+  if (d.desc) seg.push({ quote: [d.desc] });
   L(`🎵 ${d.music.title} - ${d.music.author} • ${d.music.duration}`, "");
   L("📊 Statistics");
   L(`  • 👁 ${num(s.views)} Views`, `  • ❤️ ${num(s.likes)} Likes`, `  • 💬 ${num(s.comments)} Comments`);
@@ -325,7 +330,13 @@ function report(d, html = false) {
   L("ℹ️ Information");
   L(`  • 🗂 ID | ${d.id}`, `  • 🔗 Source | ${d.source}`);
   L(`  • 📍 Region | ${d.region.flag} ${d.region.name}`, `  • 👻 Shadow ban | ${d.shadowBan}`, "");
-  L("⭐️ Quality", `  • 🌐 Browser | ${d.browserRes}`, `  • 📱 Phone | ${d.phoneRes}`, `  • 🎞 FPS | ${d.fps ? `${d.fps} FPS` : "—"}`);
+  L(
+    "⭐️ Quality",
+    `  • 🌐 Browser | ${d.browserRes}`,
+    `  • 📱 Phone | ${d.phoneRes}`,
+    `  • 📶 Bitrate | ${d.bitrate}`,
+    `  • 🎬 Codec | ${d.codec}`,
+  );
   if (d.streams.length) {
     const groups = new Map();
     for (const t of d.streams) {
@@ -341,7 +352,7 @@ function report(d, html = false) {
     }
     seg.push({ quote: q });
   }
-  L(` ┃ Original | ${d.original.w}x${d.original.h}`, ` ┃ FPS | ${d.fps ? `${d.fps} FPS` : "—"}`, ` ┃ VQ Score | ${d.vq ?? "—"}`, "");
+  L(` ┃ Original | ${d.original.w}x${d.original.h}`, ` ┃ VQ Score | ${d.vq ?? "—"}`, "");
   if (d.categories.length) L("🏷 Categories", ...d.categories.map((c) => ` ┃ ${c}`), "");
   if (d.tips.length) L("💡 Tips", ...d.tips.map((c) => ` ┃ ${c}`), "");
   L("⚡️Shura RTX® | Downloader & Checker");
@@ -419,7 +430,6 @@ function previewCaption(d) {
 function keyboard(d) {
   const rows = [];
   rows.push([{ text: "▶️ Download Original Video", callback_data: `v|${d.id}|${d.username}`.slice(0, 64) }]);
-  if (d.links.hd || d.links.sd) rows.push([{ text: "⬇️ Video HD / 4K", url: d.links.hd || d.links.sd }]);
   rows.push([{ text: "📊 Check Stats", callback_data: `s|${d.id}|${d.username}`.slice(0, 64) }]);
   if (d.username) rows.push([{ text: `👤 @${d.username} ↗️`, url: `https://www.tiktok.com/@${d.username}` }]);
   return { inline_keyboard: rows };
@@ -490,7 +500,6 @@ async function handleCallback(cq, env) {
     if (k === "v") return await sendFile(env, chat, d);
     const rows = [];
     rows.push([{ text: "▶️ Download Original Video", callback_data: `v|${d.id}|${d.username}`.slice(0, 64) }]);
-    if (d.links.hd || d.links.sd) rows.push([{ text: "⬇️ Video HD / 4K", url: d.links.hd || d.links.sd }]);
     if (d.links.music) rows.push([{ text: "🎵 Audio MP3", url: d.links.music }]);
     await tg(env, "sendMessage", {
       chat_id: chat, text: d.reportHtml, parse_mode: "HTML", disable_web_page_preview: true,
