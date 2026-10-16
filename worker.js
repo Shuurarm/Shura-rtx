@@ -632,13 +632,55 @@ async function analyzeCached(raw) {
 /* ---------- Salud de cuenta + mejores horas ---------- */
 async function scrapeUser(user) {
   const r = await fetch(`https://www.tiktok.com/@${encodeURIComponent(user)}`, {
-    headers: { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9" }, signal: AbortSignal.timeout(6000),
+    headers: {
+      "User-Agent": UA,
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "none",
+      "Sec-Fetch-User": "?1",
+    },
+    redirect: "follow",
+    signal: AbortSignal.timeout(10000),
   });
-  const m = (await r.text()).match(REHYDRATE);
+  if (!r.ok) throw new Error(`perfil HTTP ${r.status}`);
+  const html = await r.text();
+  const m = html.match(REHYDRATE);
   if (!m) throw new Error("perfil sin datos");
-  const ui = JSON.parse(m[1]).__DEFAULT_SCOPE__?.["webapp.user-detail"]?.userInfo;
+  const root = JSON.parse(m[1]);
+  const scope = root.__DEFAULT_SCOPE__ || {};
+  const detail = scope["webapp.user-detail"];
+  const ui = detail?.userInfo;
   if (!ui) throw new Error("userInfo no encontrado");
-  return ui;
+
+  let posts = detail?.itemList;
+  if (!Array.isArray(posts)) {
+    posts = Array.isArray(posts?.itemList) ? posts.itemList
+      : Array.isArray(posts?.items) ? posts.items
+      : Array.isArray(ui.itemList) ? ui.itemList
+      : [];
+  }
+  if (!posts.length && root.ItemModule?.itemMap) posts = Object.values(root.ItemModule.itemMap);
+  return { ...ui, _posts: posts };
+}
+
+function normalizeUserPosts(items) {
+  if (!Array.isArray(items)) return [];
+  return items.map((raw) => {
+    const v = raw?.itemStruct || raw?.item || raw || {};
+    const s = v.stats || v.statistics || {};
+    const s2 = v.statsV2 || {};
+    return {
+      create_time: Number(v.createTime ?? v.create_time ?? raw?.createTime ?? raw?.create_time ?? 0),
+      play_count: Number(s.playCount ?? s.play_count ?? s2.playCount ?? s2.play_count ?? v.play_count ?? raw?.play_count ?? 0),
+      digg_count: Number(s.diggCount ?? s.digg_count ?? s2.diggCount ?? s2.digg_count ?? v.digg_count ?? raw?.digg_count ?? 0),
+      comment_count: Number(s.commentCount ?? s.comment_count ?? s2.commentCount ?? s2.comment_count ?? v.comment_count ?? raw?.comment_count ?? 0),
+      share_count: Number(s.shareCount ?? s.share_count ?? s2.shareCount ?? s2.share_count ?? v.share_count ?? raw?.share_count ?? 0),
+      collect_count: Number(s.collectCount ?? s.collect_count ?? s2.collectCount ?? s2.collect_count ?? v.collect_count ?? raw?.collect_count ?? 0),
+      is_top: Boolean(v.isTop ?? v.is_top ?? v.isPinned ?? raw?.is_top ?? false),
+    };
+  }).filter((v) => v.create_time > 0 && v.play_count > 0);
 }
 const TW_H = {
   "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
@@ -717,6 +759,11 @@ function bestTimesHtml(user, raw, reason = "") {
 async function accountBest(user) {
   let ui = null, uerr = "";
   try { ui = await scrapeUser(user); } catch (e) { uerr = e.message; }
+
+  // Prioriza los videos incluidos en el HTML público del perfil: no depende de TikWM ni de la API móvil.
+  const pageVids = normalizeUserPosts(ui?._posts);
+  if (pageVids.length) return bestTimesHtml(user, pageVids);
+
   const attempts = [
     () => tikwmPosts({ unique_id: "@" + user }),
     () => tikwmPosts({ unique_id: "@" + user }, true),
@@ -726,8 +773,11 @@ async function accountBest(user) {
   let vids = [];
   const errs = [];
   for (const run of attempts) {
-    try { vids = await run(); if (vids.length) break; errs.push("sin videos"); }
-    catch (e) { errs.push(e.message); }
+    try {
+      const result = normalizeUserPosts(await run());
+      if (result.length) { vids = result; break; }
+      errs.push("sin videos");
+    } catch (e) { errs.push(e.message); }
   }
   const reason = [...new Set(errs)].join(" / ");
   if (!vids.length && !ui && uerr) throw new Error(`perfil: ${uerr} | posts: ${reason}`);
