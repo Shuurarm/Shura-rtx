@@ -654,12 +654,23 @@ async function scrapeUser(user) {
   const ui = detail?.userInfo;
   if (!ui) throw new Error("userInfo no encontrado");
 
-  let posts = detail?.itemList;
+  // TikTok normally stores public profile posts under webapp.user-post, not user-detail.
+  const postScope = scope["webapp.user-post"] || scope["webapp.user-posts"] || {};
+  let posts = postScope.itemList;
   if (!Array.isArray(posts)) {
-    posts = Array.isArray(posts?.itemList) ? posts.itemList
-      : Array.isArray(posts?.items) ? posts.items
-      : Array.isArray(ui.itemList) ? ui.itemList
+    posts = Array.isArray(posts?.items) ? posts.items
+      : Array.isArray(postScope.items) ? postScope.items
       : [];
+  }
+  // Keep secondary shapes as fallbacks in case TikTok changes its SSR payload.
+  if (!posts.length) {
+    posts = detail?.itemList;
+    if (!Array.isArray(posts)) {
+      posts = Array.isArray(posts?.items) ? posts.items
+        : Array.isArray(detail?.items) ? detail.items
+        : Array.isArray(ui.itemList) ? ui.itemList
+        : [];
+    }
   }
   if (!posts.length && root.ItemModule?.itemMap) posts = Object.values(root.ItemModule.itemMap);
   return { ...ui, _posts: posts };
