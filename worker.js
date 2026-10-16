@@ -459,7 +459,17 @@ function build(it, w, url, scraped, errs, mv, probed = {}) {
 function report(d, html = false) {
   const s = d.stats, seg = [], f = d.flags;
   const L = (...x) => seg.push(...x);
-  const ce = (icon, id) => html ? `<tg-emoji emoji-id="${id}">${icon}</tg-emoji>` : icon;
+  const ce = (icon, id) => `${String.fromCharCode(0xE000)}${id}|${icon}${String.fromCharCode(0xE001)}`;
+  const renderCustom = (s) => {
+    const re = new RegExp(String.fromCharCode(0xE000) + "(\\d+)\\|([\\s\\S]*?)" + String.fromCharCode(0xE001), "g");
+    let out = "", last = 0, m;
+    while ((m = re.exec(s)) !== null) {
+      out += html ? esc(s.slice(last, m.index)) : s.slice(last, m.index);
+      out += html ? `<tg-emoji emoji-id="${m[1]}">${esc(m[2])}</tg-emoji>` : m[2];
+      last = re.lastIndex;
+    }
+    return out + (html ? esc(s.slice(last)) : s.slice(last));
+  };
   const onoff = (off) => (f.known ? (off ? "Off" : "On") : "—");
   const yn = (b) => (f.known ? (b ? "Yes ⚠️" : "No") : "—");
   L(`${ce("📹", "5258077307985207053")} VIDEO • ANALYTICS`, "");
@@ -534,7 +544,7 @@ function report(d, html = false) {
   if (d.tips.length) L(`${ce("💡", "5258216851472654189")} Tips`, ...d.tips.map((c) => ` ┃ ${c}`), "");
   L(`${ce("⚡️", "5258152182150077732")}Shura RTX® | Downloader & Checker`);
   return seg.map((x) => typeof x === "string"
-    ? (html ? esc(x) : x)
+    ? renderCustom(x)
     : (html ? `<blockquote expandable>${(x.rawHtml ? x.quote : x.quote.map(esc)).join("\n")}</blockquote>` : x.quote.join("\n"))
   ).join("\n");
 }
