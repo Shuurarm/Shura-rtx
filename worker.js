@@ -12,18 +12,77 @@ const page = (b, s = 200) => new Response(b, { status: s, headers: { "Content-Ty
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const num = (n) => Number(n || 0).toLocaleString("en-US");
 const TT = /https?:\/\/(?:[\w-]+\.)?tiktok\.com\/[^\s]+/i;
-const PROFILE = /^(?:https?:\/\/(?:www\.)?tiktok\.com\/)?@([\w.]{2,24})\/?(?:\?.*)?$/i;
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-const DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const abs = (u) => (!u ? "" : u.startsWith("http") ? u : "https://www.tikwm.com" + u);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const firstUrl = (pa) => {
   if (!pa) return "";
   if (typeof pa === "string") return pa.startsWith("http") ? pa : "";
   const list = pa.UrlList || pa.url_list || pa.urlList || [];
   return list.find((x) => typeof x === "string" && x.startsWith("http")) || "";
 };
-const REHYDRATE = /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/;
+
+// IDs verificados de tgmacicons_ids.json (paquete: tgmacicons)
+const TG_ICONS = {
+  video:      ["5258077307985207053", "📹"],
+  music:      ["5258289810082111221", "🎵"],
+  camera:     ["5258205968025525531", "📸"],
+  calendar:   ["5258105663359294787", "🗓"],
+  views:      ["5253959125838090076", "👁"],
+  likes:      ["5258179403652801593", "❤️"],
+  comments:   ["5258215846450305872", "💬"],
+  favorites:  ["5258185631355378853", "⭐️"],
+  shares:     ["5260450573768990626", "➡️"],
+  downloads:  ["5258336354642697821", "⬇️"],
+  er:         ["5258391025281408576", "📈"],
+  info:       ["5258503720928288433", "ℹ️"],
+  id:         ["5258514780469075716", "🗂"],
+  source:     ["5260730055880876557", "🔗"],
+  region:     ["5258509201306557640", "📍"],
+  quality:    ["5260412365739925015", "⭐️"],
+  technical:  ["5258096772776991776", "⚙"],
+  package:    ["5258134813302332906", "📦"],
+  timer:      ["5258258882022612173", "⏲"],
+  color:      ["5258450450448915742", "🎨"],
+  visibility: ["5260341314095947411", "👀"],
+  lock:       ["5258476306152038031", "🔒"],
+  verified:   ["5260726538302660868", "✅"],
+  bot:        ["5258093637450866522", "🤖"],
+  ad:         ["5260268501515377807", "📣"],
+  tag:        ["5296348778012361146", "🏷"],
+  tips:       ["5258216851472654189", "💡"],
+  bolt:       ["5258152182150077732", "⚡️"],
+  user:       ["5258362837411045098", "👤"],
+  users:      ["5258513401784573443", "👥"],
+  photo:      ["5258050709252743821", "🖼"],
+  search:     ["5429571366384842791", "🔎"],
+  clock:      ["5258419835922030550", "🕔"],
+};
+
+const ce = (key, html = true) => {
+  const item = TG_ICONS[key];
+  if (!item) return "";
+  return html ? `<tg-emoji emoji-id="${item[0]}">${item[1]}</tg-emoji>` : item[1];
+};
+
+const MEM_CACHE = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+function getCached(key) {
+  if (!key) return null;
+  const hit = MEM_CACHE.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.ts > CACHE_TTL_MS) {
+    MEM_CACHE.delete(key);
+    return null;
+  }
+  return hit.data;
+}
+
+function setCached(d) {
+  const now = Date.now();
+  if (d?.id) MEM_CACHE.set(`id:${d.id}`, { ts: now, data: d });
+  if (d?.url) MEM_CACHE.set(`url:${d.url}`, { ts: now, data: d });
+}
 
 async function resolveUrl(u) {
   if (/\/(video|photo)\/\d+/.test(u)) return u;
@@ -40,7 +99,7 @@ async function scrape(u) {
   });
   const cookie = (r.headers.get("set-cookie") || "").split(/,(?=[^;]+=[^;]+)/).map((c) => c.split(";")[0].trim()).filter(Boolean).join("; ");
   const t = await r.text();
-  const m = t.match(REHYDRATE);
+  const m = t.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
   if (!m) throw new Error("TikTok no devolvió datos embebidos");
   const it = JSON.parse(m[1]).__DEFAULT_SCOPE__?.["webapp.video-detail"]?.itemInfo?.itemStruct;
   if (!it) throw new Error("itemStruct no encontrado");
@@ -64,7 +123,7 @@ async function tikwmOnce(u, get) {
 async function tikwm(u) {
   try { return await tikwmOnce(u, false); }
   catch (e) {
-    if (/limit/i.test(e.message)) await sleep(1200);
+    if (/limit/i.test(e.message)) await new Promise((r) => setTimeout(r, 1200));
     return await tikwmOnce(u, true);
   }
 }
@@ -92,23 +151,19 @@ async function mobile(id) {
       const r = await fetch(`${h}/aweme/v1/feed/?${q}`, { headers: { "User-Agent": MOBILE_UA }, signal: AbortSignal.timeout(4000) });
       const j = await r.json();
       const a = (j.aweme_list || []).find((x) => String(x.aweme_id) === String(id));
-      if (a && a.video) { a.video._info = { aigc: Number(a.aigc_info?.aigc_label_type || 0), ad: !!a.is_ads }; return a.video; }
+      if (a && a.video) return a.video;
     } catch (e) { lastErr = e; }
   }
   throw lastErr;
 }
 
-/* ---------- Análisis profundo del encabezado MP4 (stts / stsz / stsd / ilst) ---------- */
 function parseMp4Meta(buf) {
-  const out = { fps: null, dur: 0, vfr: null, tiny: null, samples: 0, color: null, brand: "", enc: "", big: false, c2pa: false };
-  const C2PA = [0xd8, 0xfe, 0xc3, 0xd6, 0x1b, 0x0e, 0x48, 0x3c, 0x92, 0x97, 0x58, 0x28, 0x87, 0x7e, 0xc4, 0x81];
   try {
     const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
     const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
     const tag = (p) => String.fromCharCode(u8[p], u8[p + 1], u8[p + 2], u8[p + 3]);
-    const CONT = new Set(["moov", "trak", "mdia", "minf", "stbl", "udta", "ilst", "meta"]);
-    const PARTIAL = new Set(["stts", "stsz", "stsd", "co64", "uuid"]);
-    let bestFps = null, bestDur = 0, picked = false;
+    const containers = new Set(["moov", "trak", "mdia", "minf", "stbl"]);
+    let bestFps = null, bestDur = 0, ghostFrames = false, vfr = false, color = "SDR (8-bit)";
     const walk = (start, end, ctx) => {
       let p = start;
       while (p + 8 <= end) {
@@ -123,102 +178,88 @@ function parseMp4Meta(buf) {
           sz = end - p;
         }
         if (sz < hdr) break;
-        if (hdr === 16) out.big = true;
-        if (!CONT.has(t) && p + sz > end && !PARTIAL.has(t)) break;
+        const isCont = t === "trak" || containers.has(t);
+        if (!isCont && p + sz > end) break;
         const body = p + hdr, next = Math.min(p + sz, end);
         if (t === "trak") {
-          const tc = { isVideo: false, timescale: 0, dur: 0, sttsSamples: 0, sttsDelta: 0, domDelta: 0, domCount: 0, stszSamples: 0, stszRead: 0, tinyCount: 0, vis: null };
+          const tc = {
+            isVideo: false, timescale: 0, dur: 0,
+            sttsSamples: 0, sttsDelta: 0, domDelta: 0, domCount: 0,
+            sttsEntries: 0, nonDomSamples: 0, stszSamples: 0, tinySamples: 0,
+          };
           walk(body, next, tc);
           if (tc.isVideo && tc.timescale > 0) {
             if (tc.dur > 0) bestDur = Math.max(bestDur, tc.dur / tc.timescale);
-            let fps = 0;
-            if (tc.sttsSamples > 0 && tc.sttsDelta > 0) fps = (tc.sttsSamples * tc.timescale) / tc.sttsDelta;
-            else if (tc.domDelta > 0) fps = tc.timescale / tc.domDelta;
-            else if (tc.dur > 0 && tc.stszSamples > 0) fps = (tc.stszSamples * tc.timescale) / tc.dur;
-            const r = Math.round(fps);
-            if (r >= 1 && r <= 1000) bestFps = Math.max(bestFps || 0, r);
-            if (!picked) {
-              picked = true;
-              out.samples = tc.stszSamples || tc.sttsSamples;
-              if (tc.sttsSamples > 0) out.vfr = tc.domCount / tc.sttsSamples < 0.98;
-              if (tc.stszRead > 0) out.tiny = tc.tinyCount / tc.stszRead;
-              out.color = tc.vis;
+            let rawFps = 0;
+            if (tc.sttsSamples > 0 && tc.sttsDelta > 0) rawFps = (tc.sttsSamples * tc.timescale) / tc.sttsDelta;
+            else if (tc.domDelta > 0) rawFps = tc.timescale / tc.domDelta;
+            else if (tc.dur > 0 && tc.stszSamples > 0) rawFps = (tc.stszSamples * tc.timescale) / tc.dur;
+
+            if (tc.tinySamples > 10 || rawFps > 130) {
+              ghostFrames = true;
+              if (tc.domDelta > 0) {
+                const domFps = Math.round(tc.timescale / tc.domDelta);
+                if (domFps >= 1 && domFps <= 120) rawFps = domFps;
+              }
             }
-          }
-        } else if (t === "ilst") {
-          let q = body;
-          while (q + 8 <= next) {
-            const isz = dv.getUint32(q);
-            if (isz < 8) break;
-            const itag = tag(q + 4), dp = q + 8;
-            if (dp + 16 <= q + isz && tag(dp + 4) === "data" && itag.charCodeAt(0) === 169 && itag.slice(1) === "too") {
-              out.enc = new TextDecoder().decode(u8.subarray(dp + 16, Math.min(q + isz, next))).replace(/[^\x20-\x7e]/g, "").slice(0, 40);
+            if (tc.sttsEntries > 3 && tc.sttsSamples > 0 && (tc.nonDomSamples / tc.sttsSamples) > 0.15 && !ghostFrames) {
+              vfr = true;
             }
-            q += isz;
+            const r = Math.round(rawFps);
+            if (r >= 1 && r <= 240) bestFps = Math.max(bestFps || 0, r);
           }
-        } else if (t === "meta") {
-          walk(body + 4, next, ctx);
-        } else if (CONT.has(t)) {
+        } else if (containers.has(t)) {
           walk(body, next, ctx);
-        } else if (ctx === null) {
-          if (t === "ftyp" && body + 4 <= next) out.brand = tag(body);
-          else if (t === "uuid" && body + 16 <= u8.byteLength && C2PA.every((b, i) => u8[body + i] === b)) out.c2pa = true;
         } else if (ctx) {
-          if (t === "co64") out.big = true;
-          else if (t === "vmhd") ctx.isVideo = true;
+          if (t === "vmhd") ctx.isVideo = true;
           else if (t === "hdlr" && body + 12 <= next && tag(body + 8) === "vide") ctx.isVideo = true;
           else if (t === "mdhd" && body + 20 <= next) {
             const ver = u8[body];
-            if (ver === 0) { ctx.timescale = dv.getUint32(body + 12); ctx.dur = dv.getUint32(body + 16); }
+            if (ver === 0 && body + 20 <= next) { ctx.timescale = dv.getUint32(body + 12); ctx.dur = dv.getUint32(body + 16); }
             else if (ver === 1 && body + 28 <= next) { ctx.timescale = dv.getUint32(body + 20); ctx.dur = Number(dv.getBigUint64(body + 24)); }
           } else if (t === "stts" && body + 8 <= next) {
             const count = dv.getUint32(body + 4);
+            ctx.sttsEntries = count;
             let q = body + 8;
+            const deltas = [];
             for (let i = 0; i < count && i < 5000 && q + 8 <= next; i++, q += 8) {
               const sc = dv.getUint32(q), sd = dv.getUint32(q + 4);
               if (sc > 0 && sd > 0) {
                 ctx.sttsSamples += sc;
                 ctx.sttsDelta += sc * sd;
+                deltas.push([sc, sd]);
                 if (sc > ctx.domCount) { ctx.domCount = sc; ctx.domDelta = sd; }
               }
             }
+            for (const [sc, sd] of deltas) {
+              if (Math.abs(sd - ctx.domDelta) > 1) ctx.nonDomSamples += sc;
+            }
           } else if (t === "stsz" && body + 12 <= next) {
-            const constSize = dv.getUint32(body + 4);
-            ctx.stszSamples = dv.getUint32(body + 8);
-            if (!constSize) {
-              let q = body + 12, n = 0, tiny = 0;
-              while (q + 4 <= next && n < ctx.stszSamples && n < 200000) { if (dv.getUint32(q) <= 64) tiny++; q += 4; n++; }
-              ctx.stszRead = n; ctx.tinyCount = tiny;
+            const sampleSize = dv.getUint32(body + 4);
+            const count = dv.getUint32(body + 8);
+            ctx.stszSamples = count;
+            if (sampleSize === 0) {
+              let q = body + 12;
+              for (let i = 0; i < count && i < 5000 && q + 4 <= next; i++, q += 4) {
+                if (dv.getUint32(q) <= 16) ctx.tinySamples++;
+              }
             }
           } else if (t === "stsd" && body + 16 <= next) {
-            const es = body + 8, esz = dv.getUint32(es), eend = Math.min(es + esz, next);
-            const vis = { tag: tag(es + 4) };
-            let c = es + 8 + 78;
-            while (c + 8 <= eend) {
-              const csz = dv.getUint32(c), ct = tag(c + 4);
-              if (csz < 8) break;
-              const cb = c + 8, cend = Math.min(c + csz, eend);
-              if (ct === "colr" && cb + 11 <= cend && tag(cb) === "nclx") { vis.prim = dv.getUint16(cb + 4); vis.trc = dv.getUint16(cb + 6); vis.mat = dv.getUint16(cb + 8); }
-              else if ((ct === "dvcC" || ct === "dvvC") && cb + 4 <= cend) vis.dv = (u8[cb + 2] >> 1) & 0x7f;
-              else if (ct === "hvcC" && cb + 19 <= cend) vis.bits = (u8[cb + 17] & 7) + 8;
-              else if (ct === "avcC" && cb + 2 <= cend) { const pr = u8[cb + 1]; vis.bits = pr === 110 || pr === 122 || pr === 244 ? 10 : 8; }
-              c += csz;
-            }
-            ctx.vis = vis;
+            const raw = String.fromCharCode(...u8.subarray(body, Math.min(next, body + 512)));
+            if (/dvcC|dvvC|dvh1|dvhe/.test(raw)) color = "Dolby Vision";
+            else if (/smpte2084|arib-std-b67|bt2020/i.test(raw)) color = "HDR10 (10-bit)";
           }
         }
         p += sz;
       }
     };
     walk(0, u8.byteLength, null);
-    out.fps = bestFps; out.dur = bestDur;
-  } catch {}
-  return out;
+    return { fps: bestFps, dur: bestDur, ghostFrames, vfr, color };
+  } catch { return { fps: null, dur: 0, ghostFrames: false, vfr: false, color: "SDR (8-bit)" }; }
 }
 
 async function probeMeta(u, cookie) {
-  const empty = { fps: null, dur: 0, samples: 0 };
-  if (!u || !u.startsWith("http")) return empty;
+  if (!u || !u.startsWith("http")) return { fps: null, dur: 0, ghostFrames: false, vfr: false, color: "SDR (8-bit)" };
   try {
     const isTikwm = /tikwm\.com/i.test(u);
     const headers = {
@@ -228,27 +269,10 @@ async function probeMeta(u, cookie) {
     };
     if (!isTikwm && cookie) headers["Cookie"] = cookie;
     const r = await fetch(u, { headers, redirect: "follow", signal: AbortSignal.timeout(3500) });
-    if (!r.ok && r.status !== 206) return empty;
-    return parseMp4Meta(await r.arrayBuffer());
-  } catch { return empty; }
-}
-
-function methodVerdict(m) {
-  if (!m || !m.samples) return "—";
-  let v;
-  if (m.tiny != null && m.tiny >= 0.2) v = "Ghost Frames / frame injection (probable)";
-  else if (m.fps >= 100) v = `High-FPS container (${m.fps} FPS, possible bypass patch)`;
-  else v = "Standard re-encode (no bypass signals)";
-  return v + (m.big ? " · 64-bit container" : "") + (m.enc ? ` · ${m.enc}` : "");
-}
-
-function colorLabel(c) {
-  if (!c) return "—";
-  if (c.dv != null || /^dv/i.test(c.tag || "")) return `Dolby Vision${c.dv != null ? ` (profile ${c.dv})` : ""}`;
-  let n = "SDR";
-  if (c.trc === 16) n = "HDR10 (PQ)"; else if (c.trc === 18) n = "HLG";
-  const sp = c.prim === 9 ? "BT.2020" : c.prim === 1 ? "BT.709" : c.prim ? `primaries ${c.prim}` : "";
-  return [n, c.bits ? `${c.bits}-bit` : "", sp].filter(Boolean).join(" · ");
+    if (!r.ok && r.status !== 206) return { fps: null, dur: 0, ghostFrames: false, vfr: false, color: "SDR (8-bit)" };
+    const buf = await r.arrayBuffer();
+    return parseMp4Meta(buf);
+  } catch { return { fps: null, dur: 0, ghostFrames: false, vfr: false, color: "SDR (8-bit)" }; }
 }
 
 function fmtDate(ts) {
@@ -388,36 +412,37 @@ function build(it, w, url, scraped, errs, mv, probed = {}) {
   const sdLink = abs(w.play) || abs(w.wmplay) || mvSd || webSd || hdLink || "";
   const musicLink = abs(w.music || w.music_info?.play) || firstUrl(mu.playUrl) || firstUrl(mu.play_url) || "";
 
-  // Fotos / carruseles
-  const webImgs = (it.imagePost?.images || []).map((i) => firstUrl(i.imageURL || i.imageUrl)).filter(Boolean);
-  const images = webImgs.length ? webImgs : (Array.isArray(w.images) ? w.images.filter((x) => typeof x === "string" && x.startsWith("http")) : []);
+  const images = [
+    ...(Array.isArray(w.images) ? w.images.map(abs) : []),
+    ...((it.imagePost?.images || []).map((img) => firstUrl(img.imageURL)).filter(Boolean)),
+  ].filter((x, i, a) => x && a.indexOf(x) === i);
 
-  // Técnico (MP4) + visibilidad
-  const meta = probed.meta || null;
-  const maxBytes = Math.max(0, ...streams.map((s) => s.bytes || 0));
-  const tech = {
-    method: methodVerdict(meta),
-    pacing: !meta || meta.vfr == null ? "—" : meta.vfr ? "⚠️ VFR (Variable)" : "CFR (Constant)",
-    color: colorLabel(meta?.color),
-    c2pa: !meta ? "—" : meta.c2pa ? "Found" : "Not found (header only)",
-    weight: maxBytes ? `${(maxBytes / 1048576).toFixed(1)} MB${maxBytes > 100 * 1048576 ? " ⚠️ >100 MB may lag on mid-range phones" : " ✅"}` : "—",
-  };
-  const flags = {
-    known: !!scraped,
-    private: !!(it.privateItem || it.secret),
-    aigc: Number(mv?._info?.aigc || 0) > 0 || Number(it.aigcLabelType || 0) > 0 || !!(it.AIGCDescription || it.aigcDescription) || it.IsAigc === true || it.isAigc === true,
-    commentsOff: Number(it.itemCommentStatus || 0) !== 0,
-    duetOff: it.duetEnabled === false,
-    stitchOff: it.stitchEnabled === false,
-    ad: !!mv?._info?.ad || !!(it.isAd || it.isCommerce || it.commerceInfo?.adAuthorization || Number(it.commerceInfo?.brandedContentType || 0) > 0),
-    verified: !!au.verified,
-  };
+  const hasOriginalGear = streams.some((s) => /^original_/i.test(s.gear));
+  const maxBytes = Math.max(...streams.map((s) => s.bytes || 0), 0);
+  const method = probed.ghostFrames
+    ? "Bypass (Ghost Frames)"
+    : hasOriginalGear || (Math.min(top?.w || 0, top?.h || 0) >= 1080 && (fps || 0) >= 60)
+      ? "Direct Original (Uncompressed)"
+      : "Standard TikTok Transcode";
+  const framePacing = probed.vfr ? "VFR (Variable)" : "CFR (Constant)";
+  const colorSpace = probed.color || (/hevc/i.test(codec) && Math.min(top?.w || 0, top?.h || 0) >= 2160 ? "HDR / 10-bit capable" : "SDR (8-bit)");
+  const playback = maxBytes > 100 * 1048576 ? `Heavy (${(maxBytes / 1048576).toFixed(1)} MB · Lag risk)` : "Optimal (<100 MB)";
+
+  const verified = Boolean(au.verified || w.author?.verified);
+  const aigc = Boolean(it.aigcLabelType || it.isAigc || it.aigcDescription || w.is_aigc);
+  const isAd = Boolean(it.isAd || it.isCommerce || w.is_ad || w.commerce_info?.adv_promotable);
+  const status = it.privateItem ? "Private" : "Public (Everyone)";
+  const duetOk = it.duetEnabled !== false && it.duetDisplay !== 3;
+  const stitchOk = it.stitchEnabled !== false && it.stitchDisplay !== 3;
+  const commentOk = it.commentStatus !== 3 && it.comments !== false;
+  const permissions = `Comments ${commentOk ? "✓" : "✕"} · Duet ${duetOk ? "✓" : "✕"} · Stitch ${stitchOk ? "✓" : "✕"}`;
 
   const d = {
     id: it.id || w.id || videoId(url) || "",
     url,
     author: (au.nickname || w.author?.nickname || "").trim() || au.uniqueId || w.author?.unique_id || "",
     username: au.uniqueId || w.author?.unique_id || "",
+    verified,
     avatar: au.avatarMedium || au.avatarThumb || abs(w.author?.avatar) || "",
     duration: dur,
     fps,
@@ -438,7 +463,15 @@ function build(it, w, url, scraped, errs, mv, probed = {}) {
     phoneRes: phoneTop ? baseRes(phoneTop) + ((phoneTop.fps || fps) ? ` ${phoneTop.fps || fps} FPS` : "") : (fps ? `${fps} FPS` : "—"),
     top, vq,
     original: { w: v.width || top?.w || 0, h: v.height || top?.h || 0, fps },
-    categories: cats, tips, streams, images, tech, flags,
+    technical: { method, framePacing, color: colorSpace, playback },
+    visibility: {
+      status,
+      verified: verified ? "Yes" : "No",
+      aigc: aigc ? "Yes" : "No",
+      ad: isAd ? "Yes" : "No",
+      permissions,
+    },
+    categories: cats, tips, streams, images,
     links: {
       hd: hdLink, sd: sdLink, music: musicLink,
       cover: abs(w.origin_cover || w.cover) || v.originCover || v.cover || firstUrl(mv?.origin_cover) || firstUrl(mv?.cover) || images[0] || "",
@@ -447,48 +480,38 @@ function build(it, w, url, scraped, errs, mv, probed = {}) {
   };
   Object.defineProperty(d, "_dlCandidates", {
     value: [...new Set([abs(w.hdplay), abs(w.play), mvHd, mvSd, webHd, webSd, abs(w.wmplay)].filter(Boolean))],
-    enumerable: false, writable: true,
+    enumerable: false,
   });
-  Object.defineProperty(d, "_cookie", { value: it._cookie || "", enumerable: false, writable: true });
-  d.report = report(d);
+  Object.defineProperty(d, "_cookie", { value: it._cookie || "", enumerable: false });
+  d.report = report(d, false);
   d.reportHtml = report(d, true);
   d.errors = errs || {};
   return d;
 }
 
 function report(d, html = false) {
-  const s = d.stats, seg = [], f = d.flags;
+  const s = d.stats, seg = [];
+  const T = (v) => (html ? esc(v) : String(v ?? ""));
+  const E = (k) => ce(k, html);
   const L = (...x) => seg.push(...x);
-  const ce = (icon, id) => `${String.fromCharCode(0xE000)}${id}|${icon}${String.fromCharCode(0xE001)}`;
-  const renderCustom = (s) => {
-    const re = new RegExp(String.fromCharCode(0xE000) + "(\\d+)\\|([\\s\\S]*?)" + String.fromCharCode(0xE001), "g");
-    let out = "", last = 0, m;
-    while ((m = re.exec(s)) !== null) {
-      out += html ? esc(s.slice(last, m.index)) : s.slice(last, m.index);
-      out += html ? `<tg-emoji emoji-id="${m[1]}">${esc(m[2])}</tg-emoji>` : m[2];
-      last = re.lastIndex;
-    }
-    return out + (html ? esc(s.slice(last)) : s.slice(last));
-  };
-  const onoff = (off) => (f.known ? (off ? "Off" : "On") : "—");
-  const yn = (b) => (f.known ? (b ? "Yes ⚠️" : "No") : "—");
-  L(`${ce("📹", "5258077307985207053")} VIDEO • ANALYTICS`, "");
-  L(`${ce("🎵", "5258289810082111221")}${ce("📸", "5258205968025525531")} ${d.author}  ${ce("🗓", "5258105663359294787")} ${d.date}`);
+
+  L(`${E("video")} VIDEO • ANALYTICS`, "");
+  L(`${E("music")}${E("camera")} ${T(d.author)}${d.verified ? ` ${E("verified")}` : ""}  ${E("calendar")} ${T(d.date)}`);
   if (d.desc) seg.push({ quote: [d.desc] });
-  L(`${ce("🎵", "5258289810082111221")} ${d.music.title} - ${d.music.author} • ${d.music.duration}`, "");
+  L(`${E("music")} ${T(d.music.title)} - ${T(d.music.author)} • ${T(d.music.duration)}`, "");
   L("📊 Statistics");
-  L(`  • ${ce("👁", "5253959125838090076")} ${num(s.views)} Views`, `  • ${ce("❤️", "5258179403652801593")} ${num(s.likes)} Likes`, `  • ${ce("💬", "5258215846450305872")} ${num(s.comments)} Comments`);
-  L(`  • ${ce("⭐️", "5258185631355378853")} ${num(s.favorites)} Favorites`, `  • ${ce("➡️", "5260450573768990626")} ${num(s.shares)} Shares`, `  • ${ce("⬇️", "5258336354642697821")} ${num(s.downloads)} Downloads`);
-  L(`  • ${ce("📈", "5258391025281408576")} ER | ${s.er}%`, "");
-  L(`${ce("ℹ️", "5258503720928288433")} Information`);
-  L(`  • 🗂 ID | ${d.id}`, `  • 🔗 Source | ${d.source}`);
-  L(`  • ${ce("📍", "5258509201306557640")} Region | ${d.region.flag} ${d.region.name}`, `  • 👻 Shadow ban | ${d.shadowBan}`, "");
+  L(`  • ${E("views")} ${num(s.views)} Views`, `  • ${E("likes")} ${num(s.likes)} Likes`, `  • ${E("comments")} ${num(s.comments)} Comments`);
+  L(`  • ${E("favorites")} ${num(s.favorites)} Favorites`, `  • ${E("shares")} ${num(s.shares)} Shares`, `  • ${E("downloads")} ${num(s.downloads)} Downloads`);
+  L(`  • ${E("er")} ER | ${T(s.er)}%`, "");
+  L(`${E("info")} Information`);
+  L(`  • ${E("id")} ID | ${T(d.id)}`, `  • ${E("source")} Source | ${T(d.source)}`);
+  L(`  • ${E("region")} Region | ${T(d.region.flag)} ${T(d.region.name)}`, `  • 👻 Shadow ban | ${T(d.shadowBan)}`, "");
   L(
-    `${ce("⭐️", "5258185631355378853")} Quality`,
-    `  • 🌐 Browser | ${d.browserRes}`,
-    `  • 📱 Phone | ${d.phoneRes}`,
-    `  • 📶 Bitrate | ${d.bitrate}`,
-    `  • 🎬 Codec | ${d.codec}`,
+    `${E("quality")} Quality`,
+    `  • 🌐 Browser | ${T(d.browserRes)}`,
+    `  • 📱 Phone | ${T(d.phoneRes)}`,
+    `  • 📶 Bitrate | ${T(d.bitrate)}`,
+    `  • 🎬 Codec | ${T(d.codec)}`,
   );
   if (d.streams.length) {
     const groups = new Map();
@@ -521,37 +544,47 @@ function report(d, html = false) {
     }
     seg.push({ quote: q, rawHtml: true });
   }
-  L(` ┃ Original | ${d.original.w}x${d.original.h}`, ` ┃ VQ Score | ${d.vq ?? "—"}`, "");
-  L(
-    "🧬 Technical",
-    `  • 🧬 Method | ${d.tech.method}`,
-    `  • 🎯 Frame Pacing | ${d.tech.pacing}`,
-    `  • 🎨 Color | ${d.tech.color}`,
-    `  • 📦 Weight | ${d.tech.weight}`,
-    "",
-    "🛡 Visibility",
-    `  • ${ce("👀", "5260341314095947411")} Visibility | ${f.known ? (f.private ? "PRIVATE ⚠️" : "PUBLIC") : "—"}`,
-    `  • ${ce("🤖", "5258093637450866522")} AI Label | ${yn(f.aigc)}`,
-    `  • 🔏 C2PA | ${d.tech.c2pa}`,
-    `  • ${ce("💬", "5258215846450305872")} Comments | ${onoff(f.commentsOff)}`,
-    `  • ${ce("🎭", "5258430848218176413")} Duet | ${onoff(f.duetOff)}`,
-    `  • ✂️ Stitch | ${onoff(f.stitchOff)}`,
-    `  • 📢 Ad / Promo | ${yn(f.ad)}`,
-    `  • ☑️ Verified | ${f.known ? (f.verified ? "Yes" : "No") : "—"}`,
-    "",
-  );
-  if (d.categories.length) L(`${ce("🏷", "5296348778012361146")} Categories`, ...d.categories.map((c) => ` ┃ ${c}`), "");
-  if (d.tips.length) L(`${ce("💡", "5258216851472654189")} Tips`, ...d.tips.map((c) => ` ┃ ${c}`), "");
-  L(`${ce("⚡️", "5258152182150077732")}Shura RTX® | Downloader & Checker`);
+  L(` ┃ Original | ${T(d.original.w)}x${T(d.original.h)}`, ` ┃ VQ Score | ${T(d.vq ?? "—")}`, "");
+  if (d.technical) {
+    L(
+      `${E("technical")} Technical`,
+      `  • ${E("package")} Method | ${T(d.technical.method)}`,
+      `  • ${E("timer")} Frame Pacing | ${T(d.technical.framePacing)}`,
+      `  • ${E("color")} Color | ${T(d.technical.color)}`,
+      `  • ${E("bolt")} Playback | ${T(d.technical.playback)}`,
+      "",
+    );
+  }
+  if (d.visibility) {
+    L(
+      `${E("visibility")} Visibility`,
+      `  • ${E("lock")} Status | ${T(d.visibility.status)}`,
+      `  • ${E("verified")} Verified | ${T(d.visibility.verified)}`,
+      `  • ${E("bot")} AI Label | ${T(d.visibility.aigc)}`,
+      `  • ${E("ad")} Ad / Promo | ${T(d.visibility.ad)}`,
+      `  • ${E("comments")} Permissions | ${T(d.visibility.permissions)}`,
+      "",
+    );
+  }
+  if (d.categories.length) L(`${E("tag")} Categories`, ...d.categories.map((c) => ` ┃ ${T(c)}`), "");
+  if (d.tips.length) L(`${E("tips")} Tips`, ...d.tips.map((c) => ` ┃ ${T(c)}`), "");
+  L(`${E("bolt")}Shura RTX® | Downloader & Checker`);
   return seg.map((x) => typeof x === "string"
-    ? renderCustom(x)
+    ? x
     : (html ? `<blockquote expandable>${(x.rawHtml ? x.quote : x.quote.map(esc)).join("\n")}</blockquote>` : x.quote.join("\n"))
   ).join("\n");
 }
 
 async function analyze(rawUrl) {
+  const preId = videoId(rawUrl);
+  const cachedById = preId ? getCached(`id:${preId}`) : getCached(`url:${rawUrl}`);
+  if (cachedById) return cachedById;
+
   const url = await resolveUrl(rawUrl);
   let id = videoId(url);
+  const cachedResolved = (id && getCached(`id:${id}`)) || getCached(`url:${url}`);
+  if (cachedResolved) return cachedResolved;
+
   let [a, b, c] = await Promise.allSettled([scrape(url), tikwm(url), id ? mobile(id) : Promise.reject(new Error("sin id"))]);
   if (a.status === "rejected" && b.status === "rejected" && c.status === "rejected") {
     throw new Error(`TikTok: ${a.reason?.message} | TikWM: ${b.reason?.message}`);
@@ -566,293 +599,176 @@ async function analyze(rawUrl) {
   }
   const it = a.value || {}, w = b.value || {}, mv = c.value || null;
   const cookie = it._cookie || "";
-  const probed = { gears: {}, max: null, hd: null, sd: null, pas: null, dur: 0, meta: null };
+  const probed = { gears: {}, max: null, hd: null, sd: null, pas: null, dur: 0, ghostFrames: false, vfr: false, color: "SDR (8-bit)" };
+  const applyMeta = (meta, gear) => {
+    if (!meta) return;
+    if (meta.fps) {
+      if (gear) probed.gears[gear] = meta.fps;
+      probed.max = Math.max(probed.max || 0, meta.fps);
+    }
+    if (meta.dur > 0) probed.dur = Math.max(probed.dur || 0, meta.dur);
+    if (meta.ghostFrames) probed.ghostFrames = true;
+    if (meta.vfr) probed.vfr = true;
+    if (meta.color && meta.color !== "SDR (8-bit)") probed.color = meta.color;
+  };
   const hasMobileFps = (mv?.bit_rate || []).some((x) => x.FPS);
-
-  const cand = [];
-  for (const br of (it.video?.bitrateInfo || []).slice(0, 4)) {
+  const tasks = [];
+  const bitrates = it.video?.bitrateInfo || [];
+  for (const br of bitrates.slice(0, hasMobileFps ? 1 : 4)) {
     const u = firstUrl(br.PlayAddr);
-    if (u && br.GearName) cand.push({ k: "gear", gear: br.GearName, url: u, cookie });
+    if (u && br.GearName) {
+      tasks.push(probeMeta(u, cookie).then((m) => applyMeta(m, br.GearName)));
+    }
   }
   const pasUrl = firstUrl(it.video?.PlayAddrStruct) || firstUrl(it.video?.playAddr);
-  if (pasUrl) cand.push({ k: "pas", url: pasUrl, cookie });
-  const hdUrl = abs(w.hdplay), sdUrl = abs(w.play);
-  if (hdUrl) cand.push({ k: "hd", url: hdUrl, cookie: "" });
-  else if (sdUrl) cand.push({ k: "sd", url: sdUrl, cookie: "" });
-
-  const list = hasMobileFps ? cand.slice(0, 1) : cand;
-  const metas = [];
-  await Promise.allSettled(list.map(async (cd, i) => {
-    const m = await probeMeta(cd.url, cd.cookie);
-    if (m.fps) {
-      if (cd.k === "gear") probed.gears[cd.gear] = m.fps;
-      else if (cd.k === "pas") probed.pas = m.fps;
-      else probed[cd.k] = m.fps;
-      probed.max = Math.max(probed.max || 0, m.fps);
-    }
-    if (m.dur > 0) probed.dur = Math.max(probed.dur || 0, m.dur);
-    if (m.samples) metas.push({ i, m });
-  }));
-  metas.sort((x, y) => x.i - y.i);
-  probed.meta = metas[0]?.m || null;
-
-  return build(a.value, b.value, url, a.status === "fulfilled", { tiktok: a.reason?.message || null, tikwm: b.reason?.message || null, mobile: c.reason?.message || null }, c.value, probed);
-}
-
-/* ---------- Caché 5 min: memoria del isolate + Cache API (solo funciona con dominio propio) ---------- */
-const MEM = new Map();
-const TTL = 300000;
-const memGet = (k) => { const e = MEM.get(k); if (e && Date.now() - e.t < TTL) return e.v; MEM.delete(k); return null; };
-const memSet = (k, v) => { MEM.set(k, { t: Date.now(), v }); if (MEM.size > 40) MEM.delete(MEM.keys().next().value); };
-const ser = (d) => ({ ...d, _dl: d._dlCandidates, _ck: d._cookie });
-const unser = (j) => {
-  const { _dl, _ck, ...d } = j;
-  Object.defineProperty(d, "_dlCandidates", { value: _dl || [], enumerable: false, writable: true });
-  Object.defineProperty(d, "_cookie", { value: _ck || "", enumerable: false, writable: true });
-  return d;
-};
-async function analyzeCached(raw) {
-  const url = await resolveUrl(raw);
-  const id = videoId(url);
-  if (!id) return analyze(url);
-  const k = "a:" + id;
-  const hit = memGet(k);
-  if (hit) return hit;
-  const ck = new Request("https://cache.shura.invalid/" + k);
-  try {
-    const c = await caches.default.match(ck);
-    if (c) { const d = unser(await c.json()); memSet(k, d); return d; }
-  } catch {}
-  const d = await analyze(url);
-  memSet(k, d);
-  try { await caches.default.put(ck, new Response(JSON.stringify(ser(d)), { headers: { "Cache-Control": "max-age=300" } })); } catch {}
-  return d;
-}
-
-/* ---------- Salud de cuenta + mejores horas ---------- */
-async function scrapeUser(user) {
-  const r = await fetch(`https://www.tiktok.com/@${encodeURIComponent(user)}`, {
-    headers: {
-      "User-Agent": UA,
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-      "Sec-Fetch-Dest": "document",
-      "Sec-Fetch-Mode": "navigate",
-      "Sec-Fetch-Site": "none",
-      "Sec-Fetch-User": "?1",
-    },
-    redirect: "follow",
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!r.ok) throw new Error(`perfil HTTP ${r.status}`);
-  const html = await r.text();
-  const m = html.match(REHYDRATE);
-  if (!m) throw new Error("perfil sin datos");
-  const root = JSON.parse(m[1]);
-  const scope = root.__DEFAULT_SCOPE__ || {};
-  const detail = scope["webapp.user-detail"];
-  const ui = detail?.userInfo;
-  if (!ui) throw new Error("userInfo no encontrado");
-
-  // TikTok normally stores public profile posts under webapp.user-post, not user-detail.
-  const postScope = scope["webapp.user-post"] || scope["webapp.user-posts"] || {};
-  let posts = postScope.itemList;
-  if (!Array.isArray(posts)) {
-    posts = Array.isArray(posts?.items) ? posts.items
-      : Array.isArray(postScope.items) ? postScope.items
-      : [];
+  if (pasUrl) {
+    tasks.push(probeMeta(pasUrl, cookie).then((m) => {
+      if (m.fps) probed.pas = m.fps;
+      applyMeta(m, null);
+    }));
   }
-  // Keep secondary shapes as fallbacks in case TikTok changes its SSR payload.
-  if (!posts.length) {
-    posts = detail?.itemList;
-    if (!Array.isArray(posts)) {
-      posts = Array.isArray(posts?.items) ? posts.items
-        : Array.isArray(detail?.items) ? detail.items
-        : Array.isArray(ui.itemList) ? ui.itemList
-        : [];
-    }
-  }
-  if (!posts.length && root.ItemModule?.itemMap) posts = Object.values(root.ItemModule.itemMap);
-  return { ...ui, _posts: posts };
+  const hdUrl = abs(w.hdplay);
+  const sdUrl = abs(w.play);
+  if (hdUrl && !tasks.length) tasks.push(probeMeta(hdUrl, "").then((m) => { if (m.fps) probed.hd = m.fps; applyMeta(m, null); }));
+  else if (sdUrl && !tasks.length) tasks.push(probeMeta(sdUrl, "").then((m) => { if (m.fps) probed.sd = m.fps; applyMeta(m, null); }));
+  if (tasks.length) await Promise.allSettled(tasks);
+
+  const res = build(a.value, b.value, url, a.status === "fulfilled", { tiktok: a.reason?.message || null, tikwm: b.reason?.message || null, mobile: c.reason?.message || null }, c.value, probed);
+  setCached(res);
+  return res;
 }
 
-function normalizeUserPosts(items) {
-  if (!Array.isArray(items)) return [];
-  return items.map((raw) => {
-    const v = raw?.itemStruct || raw?.item || raw || {};
-    const s = v.stats || v.statistics || {};
-    const s2 = v.statsV2 || {};
-    return {
-      create_time: Number(v.createTime ?? v.create_time ?? raw?.createTime ?? raw?.create_time ?? 0),
-      play_count: Number(s.playCount ?? s.play_count ?? s2.playCount ?? s2.play_count ?? v.play_count ?? raw?.play_count ?? 0),
-      digg_count: Number(s.diggCount ?? s.digg_count ?? s2.diggCount ?? s2.digg_count ?? v.digg_count ?? raw?.digg_count ?? 0),
-      comment_count: Number(s.commentCount ?? s.comment_count ?? s2.commentCount ?? s2.comment_count ?? v.comment_count ?? raw?.comment_count ?? 0),
-      share_count: Number(s.shareCount ?? s.share_count ?? s2.shareCount ?? s2.share_count ?? v.share_count ?? raw?.share_count ?? 0),
-      collect_count: Number(s.collectCount ?? s.collect_count ?? s2.collectCount ?? s2.collect_count ?? v.collect_count ?? raw?.collect_count ?? 0),
-      is_top: Boolean(v.isTop ?? v.is_top ?? v.isPinned ?? raw?.is_top ?? false),
-    };
-  }).filter((v) => v.create_time > 0 && v.play_count > 0);
-}
-const TW_H = {
-  "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-  "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
-  "Cookie": "current_language=en",
-  "Referer": "https://www.tikwm.com/",
-};
-async function tikwmPosts(params, get = false) {
-  const once = async () => {
-    const q = new URLSearchParams({ count: "35", cursor: "0", ...params });
-    const r = get
-      ? await fetch(`https://www.tikwm.com/api/user/posts?${q}`, { headers: TW_H, signal: AbortSignal.timeout(4500) })
-      : await fetch("https://www.tikwm.com/api/user/posts", { method: "POST", headers: TW_H, body: q, signal: AbortSignal.timeout(4500) });
-    const t = await r.text();
-    let j;
-    try { j = JSON.parse(t); } catch { throw new Error(t.trim().startsWith("<") ? `TikWM devolvió HTML (HTTP ${r.status})` : "TikWM sin respuesta"); }
-    if (j.code !== 0) throw new Error(j.msg || "TikWM error");
-    return j.data?.videos || [];
+async function analyzeUser(rawHandle) {
+  const handle = String(rawHandle || "").replace(/^.*tiktok\.com\/@/, "").replace(/^@/, "").split(/[/?#&\s]/)[0].trim();
+  if (!handle) throw new Error("Usuario de TikTok inválido");
+  const [infoRes, postsRes] = await Promise.allSettled([
+    fetch(`https://www.tikwm.com/api/user/info?unique_id=${encodeURIComponent(handle)}`, { headers: { "User-Agent": UA, "Referer": "https://www.tikwm.com/" }, signal: AbortSignal.timeout(6000) }).then((r) => r.json()),
+    fetch(`https://www.tikwm.com/api/user/posts?unique_id=${encodeURIComponent(handle)}&count=20`, { headers: { "User-Agent": UA, "Referer": "https://www.tikwm.com/" }, signal: AbortSignal.timeout(6000) }).then((r) => r.json()),
+  ]);
+  const uData = infoRes.status === "fulfilled" && infoRes.value?.code === 0 ? infoRes.value.data : null;
+  const pData = postsRes.status === "fulfilled" && postsRes.value?.code === 0 ? (postsRes.value.data?.videos || []) : [];
+  if (!uData && !pData.length) throw new Error("No se pudo obtener información del perfil @" + handle);
+
+  const user = uData?.user || pData[0]?.author || { uniqueId: handle, nickname: handle };
+  const stats = uData?.stats || {};
+  const followers = Number(stats.followerCount || 0);
+  const following = Number(stats.followingCount || 0);
+  const hearts = Number(stats.heartCount || stats.heart || 0);
+  const videoCount = Number(stats.videoCount || pData.length || 0);
+
+  let avgViews = 0, avgEr = "0.00", bestHours = "—", health = "Good";
+  if (pData.length) {
+    let totalV = 0, totalEng = 0;
+    const hourBuckets = new Map();
+    for (const v of pData) {
+      const vw = Number(v.play_count || 0);
+      const eg = Number(v.digg_count || 0) + Number(v.comment_count || 0) + Number(v.share_count || 0) + Number(v.collect_count || 0);
+      totalV += vw;
+      totalEng += eg;
+      if (v.create_time) {
+        const hr = new Date(Number(v.create_time) * 1000).getUTCHours();
+        const cur = hourBuckets.get(hr) || { sum: 0, count: 0 };
+        cur.sum += vw;
+        cur.count += 1;
+        hourBuckets.set(hr, cur);
+      }
+    }
+    avgViews = Math.round(totalV / pData.length);
+    const erNum = totalV ? (totalEng / totalV) * 100 : 0;
+    avgEr = erNum.toFixed(2);
+    health = erNum >= 8 ? "Excellent (High FYP Reach)" : erNum >= 3 ? "Healthy (Normal Reach)" : avgViews < 100 && followers > 1000 ? "Low Reach (Possible Shadowban)" : "Moderate";
+    const sortedHours = [...hourBuckets.entries()]
+      .map(([hr, o]) => ({ hr, avg: o.sum / o.count }))
+      .sort((a, b) => b.avg - a.avg)
+      .slice(0, 3)
+      .map((x) => `${String(x.hr).padStart(2, "0")}:00 UTC`);
+    if (sortedHours.length) bestHours = sortedHours.join(", ");
+  }
+
+  return {
+    handle: user.uniqueId || user.unique_id || handle,
+    nickname: user.nickname || handle,
+    verified: Boolean(user.verified),
+    region: regionInfo(user.region || ""),
+    followers, following, hearts, videoCount,
+    avgViews, avgEr, bestHours, health,
   };
-  try { return await once(); }
-  catch (e) { if (/limit/i.test(e.message)) { await sleep(1200); return await once(); } throw e; }
-}
-async function mobilePosts(secUid) {
-  const q = new URLSearchParams({
-    sec_user_id: secUid, count: "35", max_cursor: "0", iid: "7318518857994389254", device_id: "7318517321748022790",
-    channel: "googleplay", app_name: "musical_ly", version_code: "300904", device_platform: "android", device_type: "ASUS_Z01QD", os_version: "9", aid: "1180",
-  });
-  const r = await fetch(`https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/aweme/post/?${q}`, { headers: { "User-Agent": MOBILE_UA }, signal: AbortSignal.timeout(4000) });
-  let j;
-  try { j = JSON.parse(await r.text()); } catch { throw new Error("API móvil sin respuesta"); }
-  return (j.aweme_list || []).map((a) => ({
-    create_time: a.create_time, play_count: a.statistics?.play_count, digg_count: a.statistics?.digg_count,
-    comment_count: a.statistics?.comment_count, share_count: a.statistics?.share_count, collect_count: a.statistics?.collect_count, is_top: a.is_top,
-  }));
 }
 
-const compact = (n) => {
-  n = Number(n || 0);
-  const f = (x, u) => x.toFixed(1).replace(/\.0$/, "") + u;
-  return n >= 1e6 ? f(n / 1e6, "M") : n >= 1e3 ? f(n / 1e3, "K") : String(Math.round(n));
-};
-const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-
-function bestTimesHtml(user, raw, reason = "") {
-  const link = `<a href="https://www.tiktok.com/@${esc(user)}">@${esc(user)}</a>`;
-  const head = `<b>Best upload times</b> - ${link}`;
-  let vids = (raw || []).map((v) => ({
-    t: Number(v.create_time || 0), views: Number(v.play_count || 0), pinned: !!v.is_top,
-    eng: Number(v.digg_count || 0) + Number(v.comment_count || 0) + Number(v.share_count || 0) + Number(v.collect_count || 0),
-  })).filter((v) => v.t > 0 && v.views > 0);
-  const rec = vids.filter((v) => !v.pinned);
-  vids = rec.length ? rec : vids;
-  if (!vids.length) {
-    return `${head}\n\nℹ️ No pude leer las publicaciones recientes${reason ? ` (${esc(reason)})` : ""}. Puede ser una cuenta privada o un bloqueo de la fuente de datos.`;
-  }
-  const n = vids.length;
-  const conf = n >= 30 ? "high" : n >= 15 ? "medium" : "low";
-  const slots = new Map();
-  for (const v of vids) {
-    const d = new Date(v.t * 1000), k = `${d.getUTCDay()}|${d.getUTCHours()}`;
-    if (!slots.has(k)) slots.set(k, { day: d.getUTCDay(), hour: d.getUTCHours(), er: [], views: 0 });
-    const sl = slots.get(k);
-    sl.er.push((v.eng / v.views) * 100);
-    sl.views += v.views;
-  }
-  const ranked = [...slots.values()]
-    .map((x) => ({ ...x, avg: x.er.reduce((a, b) => a + b, 0) / x.er.length, n: x.er.length }))
-    .sort((a, b) => b.avg - a.avg || b.n - a.n || b.views - a.views)
-    .slice(0, 5);
-  const hh = (h) => String(h).padStart(2, "0") + ":00";
-  const lines = ranked.map((x, i) =>
-    `${i + 1}. ${DAYS[x.day]} ${hh(x.hour)}–${hh((x.hour + 1) % 24)} UTC\n   <b>${+x.avg.toFixed(2)}%</b> engagement · ${x.n} post${x.n > 1 ? "s" : ""}`);
-  return `${head}\n<i>Based on ${n} recent videos · ${conf} confidence</i>\n\n${lines.join("\n")}\n\n⚡️Shura RTX®`;
+function userReportHtml(u) {
+  const E = (k) => ce(k, true);
+  return [
+    `${E("user")} <b>PROFILE • ANALYTICS</b>`,
+    "",
+    `${E("camera")} <b>${esc(u.nickname)}</b> (@${esc(u.handle)}) ${u.verified ? E("verified") : ""}`,
+    `${E("region")} Region | ${esc(u.region.flag)} ${esc(u.region.name)}`,
+    "",
+    `📊 <b>Account Statistics</b>`,
+    `  • ${E("users")} ${num(u.followers)} Followers`,
+    `  • ${E("likes")} ${num(u.hearts)} Total Likes`,
+    `  • ${E("video")} ${num(u.videoCount)} Videos`,
+    `  • ${E("views")} ${num(u.avgViews)} Avg. Views (recent)`,
+    `  • ${E("er")} Avg. ER | ${esc(u.avgEr)}%`,
+    "",
+    `${E("visibility")} <b>Account Health &amp; Timing</b>`,
+    `  • ${E("verified")} Health | ${esc(u.health)}`,
+    `  • ${E("clock")} Best Upload Times | ${esc(u.bestHours)}`,
+    "",
+    `${E("bolt")}Shura RTX® | Downloader &amp; Checker`,
+  ].join("\n");
 }
 
-async function accountBest(user) {
-  let ui = null, uerr = "";
-  try { ui = await scrapeUser(user); } catch (e) { uerr = e.message; }
-
-  // Prioriza los videos incluidos en el HTML público del perfil: no depende de TikWM ni de la API móvil.
-  const pageVids = normalizeUserPosts(ui?._posts);
-  if (pageVids.length) return bestTimesHtml(user, pageVids);
-
-  const attempts = [
-    () => tikwmPosts({ unique_id: "@" + user }),
-    () => tikwmPosts({ unique_id: "@" + user }, true),
-    ...(ui?.user?.id ? [() => tikwmPosts({ user_id: ui.user.id })] : []),
-    ...(ui?.user?.secUid ? [() => mobilePosts(ui.user.secUid)] : []),
-  ];
-  let vids = [];
-  const errs = [];
-  for (const run of attempts) {
-    try {
-      const result = normalizeUserPosts(await run());
-      if (result.length) { vids = result; break; }
-      errs.push("sin videos");
-    } catch (e) { errs.push(e.message); }
-  }
-  const reason = [...new Set(errs)].join(" / ");
-  if (!vids.length && !ui && uerr) throw new Error(`perfil: ${uerr} | posts: ${reason}`);
-  return bestTimesHtml(user, vids, vids.length ? "" : reason);
-}
-
-/* ---------- Telegram ---------- */
 const tg = (env, method, body) =>
   fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   }).then((r) => r.json());
-const tgForm = (env, method, form) =>
-  fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, { method: "POST", body: form }).then((r) => r.json());
 
-function previewCaption(d, withAction = true) {
+const compact = (n) => {
+  n = Number(n || 0);
+  const f = (x, u) => x.toFixed(1).replace(/\.0$/, "") + u;
+  return n >= 1e6 ? f(n / 1e6, "M") : n >= 1e3 ? f(n / 1e3, "K") : String(n);
+};
+const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+function previewCaption(d) {
   const desc = [...(d.desc || "")].slice(0, 550).join("");
   const s = d.stats;
-  const head = d.images?.length
-    ? `📸 <b>PHOTOS</b> · ${d.images.length}`
-    : `📹 <b>VIDEO</b> · ${mmss(d.duration || 0)}${d.fps ? ` · ${d.fps} FPS` : ""}`;
-  return `${head}\n\n👤 <b>${esc(d.author)}</b>  🗓 ${esc(d.date)}  📍 ${d.region.flag} ${esc(d.region.name)}\n` +
+  const E = (k) => ce(k, true);
+  const kind = d.images?.length ? `${E("photo")} <b>PHOTO MODE</b> · ${d.images.length} photos` : `${E("video")} <b>VIDEO</b> · ${mmss(d.duration || 0)}${d.fps ? ` · ${d.fps} FPS` : ""}`;
+  return `${kind}\n\n${E("user")} <b>${esc(d.author)}</b>${d.verified ? ` ${E("verified")}` : ""}  ${E("calendar")} ${esc(d.date)}  ${E("region")} ${d.region.flag} ${esc(d.region.name)}\n` +
     (desc ? `<blockquote expandable>${esc(desc)}</blockquote>\n` : "") +
-    `👁 ${compact(s.views)}  ❤️ ${compact(s.likes)}  💬 ${compact(s.comments)}  ⭐️ ${compact(s.favorites)}` +
-    (withAction ? "\n\n👇 <b>Choose an action</b>" : "");
+    `${E("views")} ${compact(s.views)}  ${E("likes")} ${compact(s.likes)}  ${E("comments")} ${compact(s.comments)}  ${E("favorites")} ${compact(s.favorites)}\n\n👇 <b>Choose an action</b>`;
 }
 
 function keyboard(d) {
   const rows = [];
-  if (!d.images?.length) rows.push([{ text: "▶️ Download Original Video", callback_data: `v|${d.id}|${d.username}`.slice(0, 64) }]);
+  rows.push([{ text: d.images?.length ? "🖼 Download Photos" : "▶️ Download Original Video", callback_data: `v|${d.id}|${d.username}`.slice(0, 64) }]);
   rows.push([{ text: "📊 Check Stats", callback_data: `s|${d.id}|${d.username}`.slice(0, 64) }]);
   if (d.username) rows.push([{ text: `👤 @${d.username} ↗️`, url: `https://www.tiktok.com/@${d.username}` }]);
   return { inline_keyboard: rows };
 }
 
-async function sendAlbum(env, chat, urls, cap) {
-  for (let i = 0; i < urls.length; i += 10) {
-    const chunk = urls.slice(i, i + 10);
-    if (chunk.length === 1) {
-      await tg(env, "sendPhoto", { chat_id: chat, photo: chunk[0], ...(i === 0 ? { caption: cap, parse_mode: "HTML" } : {}) });
-      continue;
-    }
-    const media = chunk.map((u, j) => ({ type: "photo", media: u, ...(i === 0 && j === 0 ? { caption: cap, parse_mode: "HTML" } : {}) }));
-    const r = await tg(env, "sendMediaGroup", { chat_id: chat, media });
-    if (r.ok) continue;
-    const f = new FormData();
-    f.append("chat_id", String(chat));
-    const att = [];
-    for (let j = 0; j < chunk.length; j++) {
-      try {
-        const x = await fetch(chunk[j], { headers: { "User-Agent": UA, "Referer": "https://www.tiktok.com/" }, signal: AbortSignal.timeout(8000) });
-        if (!x.ok) continue;
-        f.append(`f${j}`, new Blob([await x.arrayBuffer()], { type: "image/jpeg" }), `p${j}.jpg`);
-        att.push({ type: "photo", media: `attach://f${j}`, ...(i === 0 && att.length === 0 ? { caption: cap, parse_mode: "HTML" } : {}) });
-      } catch {}
-    }
-    if (att.length >= 2) { f.append("media", JSON.stringify(att)); await tgForm(env, "sendMediaGroup", f); }
-  }
-}
+const tgForm = (env, method, form) =>
+  fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, { method: "POST", body: form }).then((r) => r.json());
 
-async function sendFile(env, chat, d, origin) {
+async function sendFile(env, chat, d, threadId) {
+  const extraThread = threadId ? { message_thread_id: threadId } : {};
+  if (d.images?.length) {
+    const media = d.images.slice(0, 10).map((u, i) => ({
+      type: "photo",
+      media: u,
+      ...(i === 0 ? { caption: `${ce("bolt", true)}Shura RTX® | Downloader &amp; Checker`, parse_mode: "HTML" } : {}),
+    }));
+    const res = await tg(env, "sendMediaGroup", { chat_id: chat, media, ...extraThread });
+    if (res.ok) return res;
+  }
+
   const candidates = d._dlCandidates?.length ? d._dlCandidates : [d.links.hd, d.links.sd].filter(Boolean);
-  const big = `${origin}/dl?url=${encodeURIComponent(d.url)}`;
-  const bigKb = { inline_keyboard: [[{ text: "⬇️ Descargar original (sin límite)", url: big }]] };
-  const fail = (t) => tg(env, "sendMessage", { chat_id: chat, text: t, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: bigKb });
+  const primaryLink = d.links.hd || d.links.sd || candidates[0] || "";
+  const fail = (t) => tg(env, "sendMessage", {
+    chat_id: chat, text: t, parse_mode: "HTML", disable_web_page_preview: true, ...extraThread,
+    ...(primaryLink ? { reply_markup: { inline_keyboard: [[{ text: "🔗 Enlace directo HD", url: primaryLink }]] } } : {}),
+  });
   if (!candidates.length) return fail("❌ No encontré un enlace de descarga para este video.");
   const MAX = 48 * 1048576;
   let oversizeMb = 0;
@@ -860,129 +776,160 @@ async function sendFile(env, chat, d, origin) {
   for (const link of candidates) {
     try {
       const isTikwm = /tikwm\.com/i.test(link);
-      const headers = { "User-Agent": UA, "Referer": isTikwm ? "https://www.tikwm.com/" : "https://www.tiktok.com/" };
+      const headers = {
+        "User-Agent": UA,
+        "Referer": isTikwm ? "https://www.tikwm.com/" : "https://www.tiktok.com/",
+      };
       if (!isTikwm && d._cookie) headers["Cookie"] = d._cookie;
       const r = await fetch(link, { headers, redirect: "follow", signal: AbortSignal.timeout(20000) });
       if (!r.ok) continue;
       const ct = (r.headers.get("content-type") || "").toLowerCase();
       if (ct.includes("application/json") || ct.includes("text/html")) continue;
       const size = Number(r.headers.get("content-length") || 0);
-      if (size > MAX) { oversizeMb = Math.max(oversizeMb, Math.round(size / 1048576)); try { r.body?.cancel(); } catch {} continue; }
+      if (size > MAX) { oversizeMb = Math.max(oversizeMb, Math.round(size / 1048576)); continue; }
       const buf = await r.arrayBuffer();
       if (buf.byteLength > MAX) { oversizeMb = Math.max(oversizeMb, Math.round(buf.byteLength / 1048576)); continue; }
       if (buf.byteLength < 4096) continue;
       const f = new FormData();
       f.append("chat_id", String(chat));
+      if (threadId) f.append("message_thread_id", String(threadId));
       f.append("video", new Blob([buf], { type: "video/mp4" }), `${d.id || "video"}.mp4`);
       f.append("supports_streaming", "true");
-      let cap = "⚡️Shura RTX® | Downloader & Checker";
-      if (oversizeMb) {
-        cap += `\n⚠️ Versión de ${(buf.byteLength / 1048576).toFixed(0)} MB: la original pesa ${oversizeMb} MB y Telegram limita a 50 MB a los bots.`;
-        f.append("reply_markup", JSON.stringify(bigKb));
-      }
-      f.append("caption", cap);
+      f.append("caption", "⚡️Shura RTX® | Downloader & Checker");
       const res = await tgForm(env, "sendVideo", f);
       if (res.ok) return res;
     } catch {}
   }
 
-  if (oversizeMb) return fail(`⚠️ El video pesa ${oversizeMb} MB y Telegram no deja que los bots envíen más de 50 MB. Descárgalo con este enlace (sin límite):`);
   for (const link of candidates) {
     try {
-      const res = await tg(env, "sendVideo", { chat_id: chat, video: link, supports_streaming: true, caption: "⚡️Shura RTX® | Downloader & Checker" });
+      const res = await tg(env, "sendVideo", {
+        chat_id: chat, video: link, supports_streaming: true, caption: "⚡️Shura RTX® | Downloader & Checker", ...extraThread,
+      });
       if (res.ok) return res;
     } catch {}
   }
-  return fail("❌ No pude enviar el video por Telegram. Descárgalo con este enlace:");
+
+  if (oversizeMb) return fail(`⚠️ El video pesa ${oversizeMb} MB y Telegram no deja que los bots envíen más de 50 MB. Usa el enlace directo:`);
+  return fail("❌ No pude bajar el video. Usa el enlace directo:");
 }
 
-async function handleCallback(cq, env, origin) {
+async function handleCallback(cq, env) {
   const chat = cq.message?.chat?.id;
+  const threadId = cq.message?.message_thread_id;
+  const extraThread = threadId ? { message_thread_id: threadId } : {};
   const [k, id, user] = (cq.data || "").split("|");
-  if (!["s", "v", "b"].includes(k) || !chat || !id) return tg(env, "answerCallbackQuery", { callback_query_id: cq.id });
-  const txt = k === "v" ? "Descargando video…" : k === "b" ? "Calculando mejores horas…" : "Analizando…";
-  await tg(env, "answerCallbackQuery", { callback_query_id: cq.id, text: txt });
+  if ((k !== "s" && k !== "v") || !chat || !id) return tg(env, "answerCallbackQuery", { callback_query_id: cq.id });
+  await tg(env, "answerCallbackQuery", { callback_query_id: cq.id, text: k === "v" ? "Descargando video…" : "Analizando…" });
   try {
-    if (k === "b") {
-      return await tg(env, "sendMessage", { chat_id: chat, text: await accountBest(id), parse_mode: "HTML", disable_web_page_preview: true });
-    }
-    if (k === "v") await tg(env, "sendChatAction", { chat_id: chat, action: "upload_video" });
-    const d = await analyzeCached(`https://www.tiktok.com/@${user || "_"}/video/${id}`);
-    if (k === "v") return await sendFile(env, chat, d, origin);
-    const rows = [];
-    if (!d.images?.length) rows.push([{ text: "▶️ Download Original Video", callback_data: `v|${d.id}|${d.username}`.slice(0, 64) }]);
-    if (d.username) rows.push([{ text: "⏰ Check Your Best Upload Times", callback_data: `b|${d.username}`.slice(0, 64) }]);
+    if (k === "v") await tg(env, "sendChatAction", { chat_id: chat, action: "upload_video", ...extraThread });
+    const d = await analyze(`https://www.tiktok.com/@${user || "_"}/video/${id}`);
+    if (k === "v") return await sendFile(env, chat, d, threadId);
+    const rows = [
+      [{ text: d.images?.length ? "🖼 Download Photos" : "▶️ Download Original Video", callback_data: `v|${d.id}|${d.username}`.slice(0, 64) }],
+    ];
     await tg(env, "sendMessage", {
       chat_id: chat, text: d.reportHtml, parse_mode: "HTML", disable_web_page_preview: true,
-      reply_to_message_id: cq.message.message_id, allow_sending_without_reply: true,
-      ...(rows.length ? { reply_markup: { inline_keyboard: rows } } : {}),
+      reply_to_message_id: cq.message.message_id, allow_sending_without_reply: true, ...extraThread,
+      reply_markup: { inline_keyboard: rows },
     });
   } catch (e) {
-    await tg(env, "sendMessage", { chat_id: chat, text: "❌ " + esc(e.message), parse_mode: "HTML" });
+    await tg(env, "sendMessage", { chat_id: chat, text: "❌ " + esc(e.message), parse_mode: "HTML", ...extraThread });
   }
 }
 
-async function handleInline(iq, env, origin) {
-  const empty = () => tg(env, "answerInlineQuery", { inline_query_id: iq.id, results: [], cache_time: 1 });
-  const m = (iq.query || "").match(TT);
-  if (!m) return empty();
-  try {
-    const d = await analyzeCached(m[0]);
-    const kb = { inline_keyboard: [
-      ...(d.images?.length ? [] : [[{ text: "▶️ Download", url: `${origin}/dl?url=${encodeURIComponent(d.url)}` }]]),
-      ...(d.username ? [[{ text: `👤 @${d.username} ↗️`, url: `https://www.tiktok.com/@${d.username}` }]] : []),
-    ] };
-    const th = d.links.cover && d.links.cover.startsWith("http") ? { thumbnail_url: d.links.cover } : {};
-    const desc = `👁 ${compact(d.stats.views)} · ❤️ ${compact(d.stats.likes)} · ${d.region.flag} ${d.region.name}`;
-    await tg(env, "answerInlineQuery", {
-      inline_query_id: iq.id, cache_time: 60,
-      results: [
-        { type: "article", id: "p" + d.id, title: `📹 ${d.author}`, description: desc, ...th,
-          input_message_content: { message_text: previewCaption(d, false), parse_mode: "HTML" }, reply_markup: kb },
-        { type: "article", id: "s" + d.id, title: "📊 Full report", description: "Shura RTX® analytics", ...th,
-          input_message_content: { message_text: d.reportHtml, parse_mode: "HTML", disable_web_page_preview: true } },
-      ],
+async function handleInline(iq, env) {
+  const q = (iq.query || "").trim();
+  const m = q.match(TT);
+  if (!m) {
+    return tg(env, "answerInlineQuery", {
+      inline_query_id: iq.id,
+      results: [],
+      cache_time: 5,
+      button: { text: "Pega un enlace de TikTok", start_parameter: "inline" },
     });
-  } catch { await empty(); }
+  }
+  try {
+    const d = await analyze(m[0]);
+    const kb = keyboard(d);
+    const results = [
+      {
+        type: "article",
+        id: `stats_${d.id || Date.now()}`,
+        title: `📊 Analytics: ${d.author} (${d.browserRes})`,
+        description: `👁 ${compact(d.stats.views)} · ❤️ ${compact(d.stats.likes)} · ER ${d.stats.er}% · ${d.bitrate} ${d.codec}`,
+         ...(d.links.cover ? { thumbnail_url: d.links.cover } : {}),
+        input_message_content: {
+          message_text: d.reportHtml,
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+        },
+        reply_markup: kb,
+      },
+      {
+        type: "article",
+        id: `prev_${d.id || Date.now()}`,
+        title: `📹 Preview: ${d.author}`,
+        description: d.desc || "Enviar vista previa con botones de descarga y estadísticas",
+        ...(d.links.cover ? { thumbnail_url: d.links.cover } : {}),
+        input_message_content: {
+          message_text: previewCaption(d),
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+        },
+        reply_markup: kb,
+      },
+    ];
+    return tg(env, "answerInlineQuery", { inline_query_id: iq.id, results, cache_time: 60 });
+  } catch {
+    return tg(env, "answerInlineQuery", { inline_query_id: iq.id, results: [], cache_time: 5 });
+  }
 }
 
-async function handleUpdate(update, env, origin) {
-  if (update.callback_query) return handleCallback(update.callback_query, env, origin);
-  if (update.inline_query) return handleInline(update.inline_query, env, origin);
+async function handleUpdate(update, env) {
+  if (update.callback_query) return handleCallback(update.callback_query, env);
+  if (update.inline_query) return handleInline(update.inline_query, env);
   const msg = update.message || update.edited_message;
   if (!msg || !msg.text) return;
   const chat = msg.chat.id;
+  const threadId = msg.message_thread_id;
+  const extraThread = threadId ? { message_thread_id: threadId } : {};
   const send = (text, extra = {}) =>
-    tg(env, "sendMessage", { chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true, ...extra });
+    tg(env, "sendMessage", { chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true, ...extraThread, ...extra });
 
   if (/^\/start/.test(msg.text)) {
-    return send("⚡️ <b>Shura RTX® | Downloader &amp; Checker</b>\n\nEnvíame un enlace de TikTok (video o fotos) y te devuelvo la vista previa, el análisis completo y la descarga sin marca de agua. También puedes enviar <code>@usuario</code> para ver sus mejores horas para publicar.");
+    return send(`${ce("bolt", true)} <b>Shura RTX® | Downloader &amp; Checker</b>\n\nEnvíame un enlace de TikTok y te devuelvo la vista previa del video, el análisis completo y la descarga sin marca de agua.\n\n• Usa <code>/user @usuario</code> para analizar la salud y mejores horarios de un perfil.`);
   }
-  const pm = msg.text.trim().match(PROFILE);
-  if (pm) {
-    await tg(env, "sendChatAction", { chat_id: chat, action: "typing" });
-    try { return await send(await accountBest(pm[1])); }
-    catch (e) { return send("❌ No pude analizar esa cuenta: " + esc(e.message)); }
-  }
-  const m = msg.text.match(TT);
-  if (!m) return send("Envía un enlace válido de TikTok (tiktok.com o vm.tiktok.com).");
 
-  await tg(env, "sendChatAction", { chat_id: chat, action: "upload_video" });
-  try {
-    const d = await analyzeCached(m[0]);
-    const kb = keyboard(d);
-    if (d.images?.length) {
-      await sendAlbum(env, chat, d.images, previewCaption(d, false));
-      return await send("👇 <b>Choose an action</b>", { reply_markup: kb });
+  const userCmd = msg.text.match(/^\/user\s+@?([\w.-]+)/i) || (/^@[\w.-]{2,32}$/.test(msg.text.trim()) ? [null, msg.text.trim().slice(1)] : null);
+  if (userCmd) {
+    await tg(env, "sendChatAction", { chat_id: chat, action: "typing", ...extraThread });
+    try {
+      const uInfo = await analyzeUser(userCmd[1]);
+      return await send(userReportHtml(uInfo), {
+        reply_markup: { inline_keyboard: [[{ text: `👤 @${uInfo.handle} ↗️`, url: `https://www.tiktok.com/@${uInfo.handle}` }]] },
+      });
+    } catch (e) {
+      return await send("❌ " + esc(e.message));
     }
-    const cap = previewCaption(d);
-    let r = { ok: false };
-    if (d.links.cover && d.links.cover.startsWith("http")) {
-      r = await tg(env, "sendPhoto", { chat_id: chat, photo: d.links.cover, caption: cap, parse_mode: "HTML", reply_markup: kb });
+  }
+
+  const links = [...msg.text.matchAll(new RegExp(TT.source, "gi"))].map((x) => x[0]).slice(0, 5);
+  if (!links.length) return send("Envía un enlace válido de TikTok (tiktok.com o vm.tiktok.com) o usa /user @usuario.");
+
+  for (const link of links) {
+    await tg(env, "sendChatAction", { chat_id: chat, action: "upload_video", ...extraThread });
+    try {
+      const d = await analyze(link);
+      const cap = previewCaption(d), kb = keyboard(d);
+      let r = { ok: false };
+      if (d.links.cover && d.links.cover.startsWith("http")) {
+        r = await tg(env, "sendPhoto", { chat_id: chat, photo: d.links.cover, caption: cap, parse_mode: "HTML", reply_markup: kb, ...extraThread });
+      }
+      if (!r.ok) await send(cap, { reply_markup: kb });
+    } catch (e) {
+      await send("❌ No pude analizar ese enlace: " + esc(e.message));
     }
-    if (!r.ok) await send(cap, { reply_markup: kb });
-  } catch (e) {
-    await send("❌ No pude analizar ese enlace: " + esc(e.message));
   }
 }
 
@@ -994,7 +941,7 @@ export default {
     if (u.pathname === "/api") {
       const target = u.searchParams.get("url") || "";
       if (!TT.test(target)) return json({ ok: false, error: "Enlace de TikTok inválido" }, 400);
-      try { return json({ ok: true, ...(await analyzeCached(target.match(TT)[0])) }); }
+      try { return json({ ok: true, ...(await analyze(target.match(TT)[0])) }); }
       catch (e) { return json({ ok: false, error: e.message }, 502); }
     }
 
@@ -1004,14 +951,17 @@ export default {
       try {
         let dlUrl = target, cookie = "", id = "video";
         if (TT.test(target)) {
-          const d = await analyzeCached(target.match(TT)[0]);
+          const d = await analyze(target.match(TT)[0]);
           dlUrl = d.links.hd || d.links.sd || d._dlCandidates?.[0] || "";
           cookie = d._cookie || "";
           id = d.id || "video";
         }
         if (!dlUrl || !dlUrl.startsWith("http")) return json({ ok: false, error: "No se encontró enlace de video" }, 404);
         const isTikwm = /tikwm\.com/i.test(dlUrl);
-        const headers = { "User-Agent": UA, "Referer": isTikwm ? "https://www.tikwm.com/" : "https://www.tiktok.com/" };
+        const headers = {
+          "User-Agent": UA,
+          "Referer": isTikwm ? "https://www.tikwm.com/" : "https://www.tiktok.com/",
+        };
         if (req.headers.get("Range")) headers["Range"] = req.headers.get("Range");
         if (!isTikwm && cookie) headers["Cookie"] = cookie;
         const r = await fetch(dlUrl, { headers, redirect: "follow" });
@@ -1032,7 +982,6 @@ export default {
         k === "UrlList" || k === "url_list" || k === "urlList" ? undefined : typeof x === "string" && x.length > 90 ? x.slice(0, 60) + "…" : x));
       return json({
         web: a.status === "fulfilled" ? cut(a.value.video) : String(a.reason?.message),
-        webFlags: a.status === "fulfilled" ? cut({ aigcLabelType: a.value.aigcLabelType, AIGCDescription: a.value.AIGCDescription, itemCommentStatus: a.value.itemCommentStatus, duetEnabled: a.value.duetEnabled, stitchEnabled: a.value.stitchEnabled, isAd: a.value.isAd, commerceInfo: a.value.commerceInfo, verified: a.value.author?.verified }) : null,
         mobile: b.status === "fulfilled" ? cut(b.value) : String(b.reason?.message),
       });
     }
@@ -1040,14 +989,16 @@ export default {
     if (u.pathname === "/webhook" && req.method === "POST") {
       let update;
       try { update = await req.json(); } catch { return new Response("bad request", { status: 400 }); }
-      ctx.waitUntil(handleUpdate(update, env, u.origin).catch(() => {}));
+      ctx.waitUntil(handleUpdate(update, env).catch(() => {}));
       return new Response("ok");
     }
 
     if (u.pathname === "/setup") {
       if (!env.BOT_TOKEN) return page("<h2>❌ Falta la variable BOT_TOKEN en Cloudflare</h2>", 500);
       const set = await tg(env, "setWebhook", {
-        url: `${u.origin}/webhook`, allowed_updates: ["message", "edited_message", "callback_query", "inline_query"], drop_pending_updates: true,
+        url: `${u.origin}/webhook`,
+        allowed_updates: ["message", "edited_message", "callback_query", "inline_query"],
+        drop_pending_updates: true,
       });
       const info = await tg(env, "getWebhookInfo", {});
       const ok = set.ok && info.result?.url === `${u.origin}/webhook`;
