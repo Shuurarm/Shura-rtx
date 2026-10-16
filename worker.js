@@ -459,21 +459,22 @@ function build(it, w, url, scraped, errs, mv, probed = {}) {
 function report(d, html = false) {
   const s = d.stats, seg = [], f = d.flags;
   const L = (...x) => seg.push(...x);
+  const ce = (icon, id) => `\uE000${id}|${icon}\uE001`;
   const onoff = (off) => (f.known ? (off ? "Off" : "On") : "—");
   const yn = (b) => (f.known ? (b ? "Yes ⚠️" : "No") : "—");
-  L("📹 VIDEO • ANALYTICS", "");
-  L(`🎵📸 ${d.author}  🗓 ${d.date}`);
+  L(`${ce("📹", "5258077307985207053")} VIDEO • ANALYTICS`, "");
+  L(`${ce("🎵", "5258289810082111221")}${ce("📸", "5258205968025525531")} ${d.author}  ${ce("🗓", "5258105663359294787")} ${d.date}`);
   if (d.desc) seg.push({ quote: [d.desc] });
-  L(`🎵 ${d.music.title} - ${d.music.author} • ${d.music.duration}`, "");
+  L(`${ce("🎵", "5258289810082111221")} ${d.music.title} - ${d.music.author} • ${d.music.duration}`, "");
   L("📊 Statistics");
-  L(`  • 👁 ${num(s.views)} Views`, `  • ❤️ ${num(s.likes)} Likes`, `  • 💬 ${num(s.comments)} Comments`);
-  L(`  • ⭐️ ${num(s.favorites)} Favorites`, `  • ➡️ ${num(s.shares)} Shares`, `  • ⬇️ ${num(s.downloads)} Downloads`);
-  L(`  • 📈 ER | ${s.er}%`, "");
-  L("ℹ️ Information");
+  L(`  • ${ce("👁", "5253959125838090076")} ${num(s.views)} Views`, `  • ${ce("❤️", "5258179403652801593")} ${num(s.likes)} Likes`, `  • ${ce("💬", "5258215846450305872")} ${num(s.comments)} Comments`);
+  L(`  • ${ce("⭐️", "5258185631355378853")} ${num(s.favorites)} Favorites`, `  • ${ce("➡️", "5260450573768990626")} ${num(s.shares)} Shares`, `  • ${ce("⬇️", "5258336354642697821")} ${num(s.downloads)} Downloads`);
+  L(`  • ${ce("📈", "5258391025281408576")} ER | ${s.er}%`, "");
+  L(`${ce("ℹ️", "5258503720928288433")} Information`);
   L(`  • 🗂 ID | ${d.id}`, `  • 🔗 Source | ${d.source}`);
-  L(`  • 📍 Region | ${d.region.flag} ${d.region.name}`, `  • 👻 Shadow ban | ${d.shadowBan}`, "");
+  L(`  • ${ce("📍", "5258509201306557640")} Region | ${d.region.flag} ${d.region.name}`, `  • 👻 Shadow ban | ${d.shadowBan}`, "");
   L(
-    "⭐️ Quality",
+    `${ce("⭐️", "5258185631355378853")} Quality`,
     `  • 🌐 Browser | ${d.browserRes}`,
     `  • 📱 Phone | ${d.phoneRes}`,
     `  • 📶 Bitrate | ${d.bitrate}`,
@@ -519,23 +520,25 @@ function report(d, html = false) {
     `  • 📦 Weight | ${d.tech.weight}`,
     "",
     "🛡 Visibility",
-    `  • 👀 Visibility | ${f.known ? (f.private ? "PRIVATE ⚠️" : "PUBLIC") : "—"}`,
-    `  • 🤖 AI Label | ${yn(f.aigc)}`,
+    `  • ${ce("👀", "5260341314095947411")} Visibility | ${f.known ? (f.private ? "PRIVATE ⚠️" : "PUBLIC") : "—"}`,
+    `  • ${ce("🤖", "5258093637450866522")} AI Label | ${yn(f.aigc)}`,
     `  • 🔏 C2PA | ${d.tech.c2pa}`,
-    `  • 💬 Comments | ${onoff(f.commentsOff)}`,
-    `  • 🎭 Duet | ${onoff(f.duetOff)}`,
+    `  • ${ce("💬", "5258215846450305872")} Comments | ${onoff(f.commentsOff)}`,
+    `  • ${ce("🎭", "5258430848218176413")} Duet | ${onoff(f.duetOff)}`,
     `  • ✂️ Stitch | ${onoff(f.stitchOff)}`,
     `  • 📢 Ad / Promo | ${yn(f.ad)}`,
     `  • ☑️ Verified | ${f.known ? (f.verified ? "Yes" : "No") : "—"}`,
     "",
   );
-  if (d.categories.length) L("🏷 Categories", ...d.categories.map((c) => ` ┃ ${c}`), "");
-  if (d.tips.length) L("💡 Tips", ...d.tips.map((c) => ` ┃ ${c}`), "");
-  L("⚡️Shura RTX® | Downloader & Checker");
+  if (d.categories.length) L(`${ce("🏷", "5296348778012361146")} Categories`, ...d.categories.map((c) => ` ┃ ${c}`), "");
+  if (d.tips.length) L(`${ce("💡", "5258216851472654189")} Tips`, ...d.tips.map((c) => ` ┃ ${c}`), "");
+  L(`${ce("⚡️", "5258152182150077732")}Shura RTX® | Downloader & Checker`);
   return seg.map((x) => typeof x === "string"
     ? (html ? esc(x) : x)
     : (html ? `<blockquote expandable>${(x.rawHtml ? x.quote : x.quote.map(esc)).join("\n")}</blockquote>` : x.quote.join("\n"))
-  ).join("\n");
+  ).join("\n").replace(/\uE000(\d+)\|([\s\S]*?)\uE001/g, (_, id, icon) =>
+    html ? `<tg-emoji emoji-id="${id}">${icon}</tg-emoji>` : icon
+  );
 }
 
 async function analyze(rawUrl) {
