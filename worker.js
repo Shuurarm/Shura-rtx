@@ -629,15 +629,21 @@ async function scrapeUser(user) {
   if (!ui) throw new Error("userInfo no encontrado");
   return ui;
 }
-async function tikwmPosts(params) {
+const TW_H = {
+  "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+  "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
+  "Cookie": "current_language=en",
+  "Referer": "https://www.tikwm.com/",
+};
+async function tikwmPosts(params, get = false) {
   const once = async () => {
-    const r = await fetch("https://www.tikwm.com/api/user/posts", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": UA, "Referer": "https://www.tikwm.com/" },
-      body: new URLSearchParams({ cursor: "0", ...params }),
-      signal: AbortSignal.timeout(5000),
-    });
-    const j = await r.json();
+    const q = new URLSearchParams({ count: "35", cursor: "0", ...params });
+    const r = get
+      ? await fetch(`https://www.tikwm.com/api/user/posts?${q}`, { headers: TW_H, signal: AbortSignal.timeout(4500) })
+      : await fetch("https://www.tikwm.com/api/user/posts", { method: "POST", headers: TW_H, body: q, signal: AbortSignal.timeout(4500) });
+    const t = await r.text();
+    let j;
+    try { j = JSON.parse(t); } catch { throw new Error(t.trim().startsWith("<") ? `TikWM devolvió HTML (HTTP ${r.status})` : "TikWM sin respuesta"); }
     if (j.code !== 0) throw new Error(j.msg || "TikWM error");
     return j.data?.videos || [];
   };
@@ -646,11 +652,12 @@ async function tikwmPosts(params) {
 }
 async function mobilePosts(secUid) {
   const q = new URLSearchParams({
-    sec_user_id: secUid, count: "30", max_cursor: "0", iid: "7318518857994389254", device_id: "7318517321748022790",
+    sec_user_id: secUid, count: "35", max_cursor: "0", iid: "7318518857994389254", device_id: "7318517321748022790",
     channel: "googleplay", app_name: "musical_ly", version_code: "300904", device_platform: "android", device_type: "ASUS_Z01QD", os_version: "9", aid: "1180",
   });
   const r = await fetch(`https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/aweme/post/?${q}`, { headers: { "User-Agent": MOBILE_UA }, signal: AbortSignal.timeout(4000) });
-  const j = await r.json();
+  let j;
+  try { j = JSON.parse(await r.text()); } catch { throw new Error("API móvil sin respuesta"); }
   return (j.aweme_list || []).map((a) => ({
     create_time: a.create_time, play_count: a.statistics?.play_count, digg_count: a.statistics?.digg_count,
     comment_count: a.statistics?.comment_count, share_count: a.statistics?.share_count, collect_count: a.statistics?.collect_count, is_top: a.is_top,
@@ -664,76 +671,46 @@ const compact = (n) => {
 };
 const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
-function healthHtml(user, ui, raw, reason = "") {
-  const st = ui?.stats || {}, u = ui?.user || {};
+function bestTimesHtml(user, raw, reason = "") {
+  const link = `<a href="https://www.tiktok.com/@${esc(user)}">@${esc(user)}</a>`;
+  const head = `<b>Best upload times</b> - ${link}`;
   let vids = (raw || []).map((v) => ({
     t: Number(v.create_time || 0), views: Number(v.play_count || 0), pinned: !!v.is_top,
     eng: Number(v.digg_count || 0) + Number(v.comment_count || 0) + Number(v.share_count || 0) + Number(v.collect_count || 0),
-  })).filter((v) => v.t > 0);
+  })).filter((v) => v.t > 0 && v.views > 0);
   const rec = vids.filter((v) => !v.pinned);
   vids = rec.length ? rec : vids;
-  const L = [`🩺 <b>Account Health</b> — @${esc(user)}${u.verified ? " ☑️" : ""}`];
-  if (ui) L.push(`👥 ${compact(st.followerCount)} Followers  ❤️ ${compact(st.heartCount ?? st.heart)} Likes`, `🎬 ${num(st.videoCount)} Videos  ➕ ${compact(st.followingCount)} Following`);
   if (!vids.length) {
-    L.push("", `ℹ️ No pude leer las publicaciones recientes${reason ? ` (${esc(reason)})` : ""}. Puede ser una cuenta privada o un límite de la fuente de datos.`, "", "⚡️Shura RTX®");
-    return L.join("\n");
+    return `${head}\n\nℹ️ No pude leer las publicaciones recientes${reason ? ` (${esc(reason)})` : ""}. Puede ser una cuenta privada o un bloqueo de la fuente de datos.`;
   }
   const n = vids.length;
-  const avg = vids.reduce((a, v) => a + v.views, 0) / n;
-  const sorted = vids.map((v) => v.views).sort((a, b) => a - b);
-  const med = n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
-  const withViews = vids.filter((v) => v.views > 0);
-  const er = withViews.length ? (withViews.reduce((a, v) => a + v.eng / v.views, 0) / withViews.length) * 100 : 0;
-  const times = vids.map((v) => v.t).sort((a, b) => b - a);
-  const lastDays = Math.floor((Date.now() / 1000 - times[0]) / 86400);
-  const span = (times[0] - times[n - 1]) / 86400;
-  const perWeek = n > 1 && span > 0 ? ((n - 1) / span) * 7 : 0;
-  L.push("", `📊 <b>Last ${n} posts</b>`, `  • 👁 Avg views | ${compact(avg)} (median ${compact(med)})`, `  • 📈 Avg ER | ${er.toFixed(2)}%`);
-  const followers = Number(st.followerCount || 0);
-  if (followers) L.push(`  • 🔁 Views / Followers | ${((avg / followers) * 100).toFixed(1)}%`);
-  L.push(`  • 🗓 Cadence | ~${perWeek.toFixed(1)} posts/week · last post ${lastDays}d ago`);
-
-  const group = (keyFn) => {
-    const m = new Map();
-    for (const v of vids) { const k = keyFn(new Date(v.t * 1000)); if (!m.has(k)) m.set(k, []); m.get(k).push(v.views); }
-    let arr = [...m.entries()].map(([k, a]) => ({ k, n: a.length, avg: a.reduce((x, y) => x + y, 0) / a.length }));
-    const multi = arr.filter((x) => x.n >= 2);
-    if (multi.length >= 2) arr = multi;
-    return arr.sort((a, b) => b.avg - a.avg);
-  };
-  const hrs = group((d) => d.getUTCHours()).slice(0, 3);
-  L.push("", "⏰ <b>Best hours to post (UTC)</b>");
-  hrs.forEach((h, i) => L.push(`  ${i + 1}. ${String(h.k).padStart(2, "0")}:00 — avg ${compact(h.avg)} views (${h.n} post${h.n > 1 ? "s" : ""})`));
-  const day = group((d) => d.getUTCDay())[0];
-  if (day) L.push(`📆 Best day | ${DAYS[day.k]} — avg ${compact(day.avg)} views (${day.n})`);
-
-  const notes = [];
-  const byT = [...vids].sort((a, b) => b.t - a.t);
-  const recent = byT.slice(0, 4), prev = byT.slice(4, 12);
-  if (recent.length === 4 && prev.length >= 4) {
-    const ra = recent.reduce((a, v) => a + v.views, 0) / 4, pa = prev.reduce((a, v) => a + v.views, 0) / prev.length;
-    if (pa > 0) {
-      const ch = Math.round((ra / pa - 1) * 100);
-      if (ch <= -40) notes.push(`📉 Caída brusca de alcance: últimos 4 posts ${compact(ra)} vs ${compact(pa)} antes (${ch}%)`);
-      else if (ch >= 50) notes.push(`📈 Alcance en alza: últimos 4 posts ${compact(ra)} vs ${compact(pa)} antes (+${ch}%)`);
-    }
+  const conf = n >= 30 ? "high" : n >= 15 ? "medium" : "low";
+  const slots = new Map();
+  for (const v of vids) {
+    const d = new Date(v.t * 1000), k = `${d.getUTCDay()}|${d.getUTCHours()}`;
+    if (!slots.has(k)) slots.set(k, { day: d.getUTCDay(), hour: d.getUTCHours(), er: [], views: 0 });
+    const sl = slots.get(k);
+    sl.er.push((v.eng / v.views) * 100);
+    sl.views += v.views;
   }
-  if (lastDays > 30) notes.push(`⚠️ Sin publicar hace ${lastDays} días`);
-  if (followers && avg / followers < 0.03) notes.push("📉 Alcance bajo frente a sus seguidores");
-  if (followers && avg / followers >= 0.2) notes.push("🚀 Alcance alto frente a sus seguidores");
-  if (notes.length) L.push("", ...notes);
-  L.push("", "ℹ️ Basado en las publicaciones recientes disponibles; con pocas muestras es solo una guía.", "⚡️Shura RTX®");
-  return L.join("\n");
+  const ranked = [...slots.values()]
+    .map((x) => ({ ...x, avg: x.er.reduce((a, b) => a + b, 0) / x.er.length, n: x.er.length }))
+    .sort((a, b) => b.avg - a.avg || b.n - a.n || b.views - a.views)
+    .slice(0, 5);
+  const hh = (h) => String(h).padStart(2, "0") + ":00";
+  const lines = ranked.map((x, i) =>
+    `${i + 1}. ${DAYS[x.day]} ${hh(x.hour)}–${hh((x.hour + 1) % 24)} UTC\n   <b>${+x.avg.toFixed(2)}%</b> engagement · ${x.n} post${x.n > 1 ? "s" : ""}`);
+  return `${head}\n<i>Based on ${n} recent videos · ${conf} confidence</i>\n\n${lines.join("\n")}\n\n⚡️Shura RTX®`;
 }
 
-async function accountHealth(user) {
+async function accountBest(user) {
   let ui = null, uerr = "";
   try { ui = await scrapeUser(user); } catch (e) { uerr = e.message; }
   const attempts = [
-    () => tikwmPosts({ unique_id: user, count: "30" }),
-    ...(ui?.user?.id ? [() => tikwmPosts({ user_id: ui.user.id, count: "30" })] : []),
+    () => tikwmPosts({ unique_id: "@" + user }),
+    () => tikwmPosts({ unique_id: "@" + user }, true),
+    ...(ui?.user?.id ? [() => tikwmPosts({ user_id: ui.user.id })] : []),
     ...(ui?.user?.secUid ? [() => mobilePosts(ui.user.secUid)] : []),
-    () => tikwmPosts({ unique_id: "@" + user, count: "12" }),
   ];
   let vids = [];
   const errs = [];
@@ -742,8 +719,8 @@ async function accountHealth(user) {
     catch (e) { errs.push(e.message); }
   }
   const reason = [...new Set(errs)].join(" / ");
-  if (!ui && !vids.length) throw new Error(`perfil: ${uerr} | posts: ${reason}`);
-  return healthHtml(user, ui, vids, vids.length ? "" : reason);
+  if (!vids.length && !ui && uerr) throw new Error(`perfil: ${uerr} | posts: ${reason}`);
+  return bestTimesHtml(user, vids, vids.length ? "" : reason);
 }
 
 /* ---------- Telegram ---------- */
@@ -770,7 +747,6 @@ function keyboard(d) {
   const rows = [];
   if (!d.images?.length) rows.push([{ text: "▶️ Download Original Video", callback_data: `v|${d.id}|${d.username}`.slice(0, 64) }]);
   rows.push([{ text: "📊 Check Stats", callback_data: `s|${d.id}|${d.username}`.slice(0, 64) }]);
-  if (d.username) rows.push([{ text: "🩺 Account Health", callback_data: `h|${d.username}`.slice(0, 64) }]);
   if (d.username) rows.push([{ text: `👤 @${d.username} ↗️`, url: `https://www.tiktok.com/@${d.username}` }]);
   return { inline_keyboard: rows };
 }
@@ -851,19 +827,19 @@ async function sendFile(env, chat, d, origin) {
 async function handleCallback(cq, env, origin) {
   const chat = cq.message?.chat?.id;
   const [k, id, user] = (cq.data || "").split("|");
-  if (!["s", "v", "h"].includes(k) || !chat || !id) return tg(env, "answerCallbackQuery", { callback_query_id: cq.id });
-  const txt = k === "v" ? "Descargando video…" : k === "h" ? "Analizando cuenta…" : "Analizando…";
+  if (!["s", "v", "b"].includes(k) || !chat || !id) return tg(env, "answerCallbackQuery", { callback_query_id: cq.id });
+  const txt = k === "v" ? "Descargando video…" : k === "b" ? "Calculando mejores horas…" : "Analizando…";
   await tg(env, "answerCallbackQuery", { callback_query_id: cq.id, text: txt });
   try {
-    if (k === "h") {
-      return await tg(env, "sendMessage", { chat_id: chat, text: await accountHealth(id), parse_mode: "HTML", disable_web_page_preview: true });
+    if (k === "b") {
+      return await tg(env, "sendMessage", { chat_id: chat, text: await accountBest(id), parse_mode: "HTML", disable_web_page_preview: true });
     }
     if (k === "v") await tg(env, "sendChatAction", { chat_id: chat, action: "upload_video" });
     const d = await analyzeCached(`https://www.tiktok.com/@${user || "_"}/video/${id}`);
     if (k === "v") return await sendFile(env, chat, d, origin);
     const rows = [];
     if (!d.images?.length) rows.push([{ text: "▶️ Download Original Video", callback_data: `v|${d.id}|${d.username}`.slice(0, 64) }]);
-    if (d.username) rows.push([{ text: "🩺 Account Health", callback_data: `h|${d.username}`.slice(0, 64) }]);
+    if (d.username) rows.push([{ text: "⏰ Check Your Best Upload Times", callback_data: `b|${d.username}`.slice(0, 64) }]);
     await tg(env, "sendMessage", {
       chat_id: chat, text: d.reportHtml, parse_mode: "HTML", disable_web_page_preview: true,
       reply_to_message_id: cq.message.message_id, allow_sending_without_reply: true,
@@ -908,12 +884,12 @@ async function handleUpdate(update, env, origin) {
     tg(env, "sendMessage", { chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true, ...extra });
 
   if (/^\/start/.test(msg.text)) {
-    return send("⚡️ <b>Shura RTX® | Downloader &amp; Checker</b>\n\nEnvíame un enlace de TikTok (video o fotos) y te devuelvo la vista previa, el análisis completo y la descarga sin marca de agua. También puedes enviar <code>@usuario</code> para ver la salud de una cuenta.");
+    return send("⚡️ <b>Shura RTX® | Downloader &amp; Checker</b>\n\nEnvíame un enlace de TikTok (video o fotos) y te devuelvo la vista previa, el análisis completo y la descarga sin marca de agua. También puedes enviar <code>@usuario</code> para ver sus mejores horas para publicar.");
   }
   const pm = msg.text.trim().match(PROFILE);
   if (pm) {
     await tg(env, "sendChatAction", { chat_id: chat, action: "typing" });
-    try { return await send(await accountHealth(pm[1])); }
+    try { return await send(await accountBest(pm[1])); }
     catch (e) { return send("❌ No pude analizar esa cuenta: " + esc(e.message)); }
   }
   const m = msg.text.match(TT);
@@ -947,13 +923,6 @@ export default {
       const target = u.searchParams.get("url") || "";
       if (!TT.test(target)) return json({ ok: false, error: "Enlace de TikTok inválido" }, 400);
       try { return json({ ok: true, ...(await analyzeCached(target.match(TT)[0])) }); }
-      catch (e) { return json({ ok: false, error: e.message }, 502); }
-    }
-
-    if (u.pathname === "/health") {
-      const user = (u.searchParams.get("user") || "").replace(/^@/, "");
-      if (!/^[\w.]{2,24}$/.test(user)) return json({ ok: false, error: "Usuario inválido" }, 400);
-      try { return json({ ok: true, html: await accountHealth(user) }); }
       catch (e) { return json({ ok: false, error: e.message }, 502); }
     }
 
