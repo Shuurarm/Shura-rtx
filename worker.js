@@ -459,7 +459,7 @@ function build(it, w, url, scraped, errs, mv, probed = {}) {
 function report(d, html = false) {
   const s = d.stats, seg = [], f = d.flags;
   const L = (...x) => seg.push(...x);
-  const ce = (icon, id) => `\uE000${id}|${icon}\uE001`;
+  const ce = (icon, id) => html ? `<tg-emoji emoji-id="${id}">${icon}</tg-emoji>` : icon;
   const onoff = (off) => (f.known ? (off ? "Off" : "On") : "—");
   const yn = (b) => (f.known ? (b ? "Yes ⚠️" : "No") : "—");
   L(`${ce("📹", "5258077307985207053")} VIDEO • ANALYTICS`, "");
@@ -536,9 +536,7 @@ function report(d, html = false) {
   return seg.map((x) => typeof x === "string"
     ? (html ? esc(x) : x)
     : (html ? `<blockquote expandable>${(x.rawHtml ? x.quote : x.quote.map(esc)).join("\n")}</blockquote>` : x.quote.join("\n"))
-  ).join("\n").replace(/\uE000(\d+)\|([\s\S]*?)\uE001/g, (_, id, icon) =>
-    html ? `<tg-emoji emoji-id="${id}">${icon}</tg-emoji>` : icon
-  );
+  ).join("\n");
 }
 
 async function analyze(rawUrl) {
